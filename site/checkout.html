@@ -1,0 +1,295 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Checkout | HackLearn Press</title>
+<meta name="robots" content="noindex">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,800&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+:root{--bg:#f6f5fc;--bg2:#eeecfa;--panel:#fff;--line:#dcd9f0;--fg:#17152e;--muted:#5d5a80;--accent:#5a51ea;--good:#1a8a4a;--bad:#c0392b}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0e0d1a;--bg2:#15142a;--panel:#1b1a33;--line:#2c2a4d;--fg:#ecebff;--muted:#a3a1c7;--accent:#7d75ff;--good:#3ddc84;--bad:#ff6b6b;color-scheme:dark}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.6 "IBM Plex Sans",system-ui,sans-serif;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.w{max-width:620px;margin:0 auto;padding-bottom:60px}
+header{display:flex;align-items:center;padding:16px 0;border-bottom:1px solid var(--line)}
+header a{color:var(--fg);text-decoration:none;font:800 18px "Bricolage Grotesque",system-ui,sans-serif}
+h1{font:800 28px/1.15 "Bricolage Grotesque",system-ui,sans-serif;margin:28px 0 4px}
+.muted{color:var(--muted)}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px 20px;margin:16px 0}
+.row{display:flex;justify-content:space-between;gap:12px;padding:6px 0}
+.row.total{font-weight:700;font-size:18px;border-top:1px solid var(--line);margin-top:8px;padding-top:12px}
+ul.items{list-style:none;padding:0;margin:0}
+ul.items li{display:flex;justify-content:space-between;padding:6px 0;font-size:14.5px}
+label{display:block;font-weight:600;font-size:14px;margin:14px 0 6px}
+input[type=email],input[type=text]{width:100%;padding:11px 12px;border-radius:10px;border:1px solid var(--line);background:var(--bg2);color:var(--fg);font:15px "IBM Plex Sans",sans-serif}
+.methods{display:flex;gap:10px;margin-top:14px;flex-wrap:wrap}
+.methods button{flex:1 1 180px;padding:14px;border-radius:12px;border:1px solid var(--line);background:var(--bg2);color:var(--fg);font-weight:700;cursor:pointer;font-size:15px}
+.methods button.active{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent) inset}
+.btn{display:inline-block;padding:13px 20px;border-radius:10px;border:0;background:var(--accent);color:#fff;font-weight:700;cursor:pointer;font-size:15.5px;width:100%;margin-top:14px}
+.btn:disabled{opacity:.55;cursor:not-allowed}
+.btn-ghost{background:transparent;border:1px solid var(--line);color:var(--fg)}
+.notice{font-size:13.5px;padding:10px 12px;border-radius:10px;margin-top:12px}
+.notice.info{background:var(--bg2);color:var(--muted)}
+.notice.bad{background:color-mix(in srgb, var(--bad) 14%, transparent);color:var(--bad)}
+.notice.good{background:color-mix(in srgb, var(--good) 14%, transparent);color:var(--good)}
+#qr{display:flex;justify-content:center;margin:14px 0}
+#qr canvas,#qr img{border-radius:10px;background:#fff;padding:10px}
+.addr{font-family:ui-monospace,monospace;font-size:13px;word-break:break-all;background:var(--bg2);padding:10px 12px;border-radius:8px;margin:8px 0;user-select:all}
+.spin{display:inline-block;width:14px;height:14px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:sp .7s linear infinite;margin-right:8px;vertical-align:-2px}
+@keyframes sp{to{transform:rotate(360deg)}}
+footer{color:var(--muted);font-size:13px;margin-top:30px;text-align:center}
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
+<div class="w">
+<header><a href="index.html">HackLearn Press</a></header>
+<h1>Checkout</h1>
+<p class="muted" id="subtitle">Review your order, then pay by UPI/card or crypto.</p>
+
+<div class="panel">
+  <ul class="items" id="items"></ul>
+  <div class="row"><span class="muted">Subtotal</span><span id="sum">—</span></div>
+  <div class="row" id="discRow" hidden><span class="muted" id="discLabel">Discount</span><span id="disc">—</span></div>
+  <div class="row total"><span>Total</span><span id="total">—</span></div>
+</div>
+
+<div class="panel" id="emailPanel">
+  <label for="email">Email (your books get sent here)</label>
+  <input type="email" id="email" placeholder="you@example.com" autocomplete="email">
+
+  <label>Pay with</label>
+  <div class="methods">
+    <button type="button" id="mUpi" class="active">UPI / Card / Netbanking</button>
+    <button type="button" id="mCrypto">Crypto (USDT · TRC20)</button>
+  </div>
+
+  <button class="btn" id="payBtn">Continue</button>
+  <div id="globalNotice"></div>
+</div>
+
+<!-- UPI/card flow: Razorpay's own checkout popup handles the QR + UPI-app intent on mobile automatically -->
+<div class="panel" id="upiPanel" hidden>
+  <p>Opening secure Razorpay checkout&hellip; on your phone this shows a UPI QR and lets you pay directly with any UPI app installed.</p>
+  <div id="upiStatus" class="notice info"><span class="spin"></span>Waiting for payment confirmation&hellip;</div>
+</div>
+
+<!-- Crypto flow -->
+<div class="panel" id="cryptoPanel" hidden>
+  <p>Send <b id="usdtAmt">—</b> USDT on the <b>TRC20 (Tron)</b> network to:</p>
+  <div class="addr" id="usdtAddr">—</div>
+  <div id="qr"></div>
+  <p class="muted" style="font-size:13px">Only send USDT on the TRC20 network to this address. Sending on another network or a different token cannot be recovered.</p>
+  <label for="txHash">Transaction hash (after sending)</label>
+  <input type="text" id="txHash" placeholder="64-character transaction hash">
+  <button class="btn" id="submitTx">I've sent it — verify payment</button>
+  <div id="cryptoNotice"></div>
+</div>
+
+<div class="panel" id="donePanel" hidden>
+  <div class="notice good">Payment confirmed! Your books are on their way to your email.</div>
+  <a class="btn" id="downloadNow" href="#" target="_blank" rel="noopener">Download now</a>
+</div>
+
+<div class="panel" id="fallbackPanel" hidden>
+  <div class="notice info">Online payment isn't switched on yet for this store. Order on WhatsApp instead and we'll send a secure payment link.</div>
+  <a class="btn" id="waFallback" href="#" target="_blank" rel="noopener">Order on WhatsApp</a>
+</div>
+
+<footer>Secured checkout &middot; HackLearn Press</footer>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script>
+// ---- Set this once the payments backend is deployed (see payments/README.md) ----
+const API_BASE = "https://hacklearnbooks.onrender.com";
+const WHATSAPP_NUMBER = "919341127976";
+
+// Local copy of the catalog + discount tiers, so this page can show the real
+// order review (titles, prices, discount) even before a backend is deployed.
+// Mirrors payments/src/books.json and payments/src/catalog.js exactly —
+// if you ever change a book's price there, update it here too.
+const CATALOG = [{"id":"linux-for-hackers","t":"Linux for Hackers","p":349,"mrp":699},{"id":"network-hacking-20-days","t":"Network Hacking in 20 Days","p":449,"mrp":899},{"id":"web-app-pentesting","t":"Web Application Pentesting","p":599,"mrp":1199},{"id":"python-for-hackers","t":"Python for Hackers","p":449,"mrp":899},{"id":"soc-analyst-field-guide","t":"SOC Analyst Field Guide","p":549,"mrp":1099},{"id":"applied-cryptography","t":"Applied Cryptography for Security Pros","p":499,"mrp":999},{"id":"osint-investigations","t":"OSINT Investigations","p":449,"mrp":899},{"id":"malware-analysis","t":"Malware Analysis & Reverse Engineering","p":799,"mrp":1499},{"id":"cloud-security","t":"Cloud Security & Pentesting","p":699,"mrp":1299},{"id":"breaking-the-model","t":"Breaking the Model","p":699,"mrp":1299},{"id":"signals-in-the-dark","t":"Signals in the Dark","p":799,"mrp":1499},{"id":"red-team-operations","t":"Red Team Operations","p":899,"mrp":1699},{"id":"android-app-pentesting","t":"Android App Pentesting","p":599,"mrp":1199},{"id":"think-like-an-attacker","t":"Think Like an Attacker","p":649,"mrp":1299},{"id":"active-directory","t":"Active Directory Attacks & Defense","p":799,"mrp":1499},{"id":"the-200-tool-arsenal","t":"The 200-Tool Arsenal","p":699,"mrp":1399},{"id":"bug-bounty-playbook","t":"Bug Bounty Hunter's Playbook","p":599,"mrp":1199},{"id":"wireless-iot-hacking","t":"Wireless & IoT Hacking","p":599,"mrp":1199}];
+const CATALOG_BY_ID = Object.fromEntries(CATALOG.map(b => [b.id, b]));
+const TIERS = [[18, 40], [5, 25], [3, 15], [2, 10]];
+function localPrice(ids) {
+  const items = ids.map(id => CATALOG_BY_ID[id]).filter(Boolean);
+  const sumInr = items.reduce((a, b) => a + b.p, 0);
+  const pct = ([...TIERS].find(([t]) => items.length >= t) || [0, 0])[1];
+  const totalInr = Math.round(sumInr * (100 - pct) / 100);
+  return { items, sumInr, discountPercent: pct, totalInr };
+}
+
+const params = new URLSearchParams(location.search);
+const bookIds = (params.get('books') || '').split(',').map(s => s.trim()).filter(Boolean);
+const itemsEl = document.getElementById('items');
+const sumEl = document.getElementById('sum'), discRow = document.getElementById('discRow'),
+      discEl = document.getElementById('disc'), discLabel = document.getElementById('discLabel'),
+      totalEl = document.getElementById('total');
+const inr = n => '₹' + Math.round(n).toLocaleString('en-IN');
+
+let currentPrice = null;
+let method = 'razorpay';
+let pollTimer = null;
+
+function setNotice(el, kind, msg) {
+  el.innerHTML = msg ? `<div class="notice ${kind}">${msg}</div>` : '';
+}
+
+async function api(path, opts) {
+  const res = await fetch(API_BASE + path, Object.assign({ headers: { 'content-type': 'application/json' } }, opts));
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw Object.assign(new Error(data.error || res.statusText), { status: res.status, data });
+  return data;
+}
+
+function waLink() {
+  const lines = bookIds.map(id => `- ${id}`).join('\n');
+  const msg = `Hi, I want to order from HackLearn Press:\n${lines}\nPlease share the secure payment link.`;
+  return `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(msg)}`;
+}
+
+function renderPrice(price) {
+  itemsEl.innerHTML = price.items.map(b => `<li><span>${b.t}</span><span>${inr(b.p)}</span></li>`).join('');
+  sumEl.textContent = inr(price.sumInr);
+  if (price.discountPercent) {
+    discRow.hidden = false;
+    discLabel.textContent = `Discount (${price.discountPercent}%)`;
+    discEl.textContent = '−' + inr(price.sumInr - price.totalInr);
+  }
+  totalEl.textContent = inr(price.totalInr);
+}
+
+async function init() {
+  if (!bookIds.length) {
+    document.getElementById('subtitle').textContent = 'No books selected — go back to the store and add some books first.';
+    document.getElementById('emailPanel').hidden = true;
+    return;
+  }
+  // Show the real order review immediately from the local catalog — this
+  // works even before a backend is deployed, so the checkout UI is always
+  // visible and previewable.
+  currentPrice = localPrice(bookIds);
+  renderPrice(currentPrice);
+
+  // If a backend is configured, prefer its (equally-computed) price in case
+  // prices ever drift between this static page and the backend's catalog.
+  if (API_BASE) {
+    try {
+      const live = await api('/api/price', { method: 'POST', body: JSON.stringify({ bookIds }) });
+      currentPrice = { items: currentPrice.items, sumInr: live.sumInr, discountPercent: live.discountPercent, totalInr: live.totalInr };
+      renderPrice(currentPrice);
+    } catch (_) { /* local price above already shown — fine to proceed with it */ }
+  }
+}
+
+document.getElementById('mUpi').onclick = () => {
+  method = 'razorpay';
+  document.getElementById('mUpi').classList.add('active');
+  document.getElementById('mCrypto').classList.remove('active');
+};
+document.getElementById('mCrypto').onclick = () => {
+  method = 'crypto';
+  document.getElementById('mCrypto').classList.add('active');
+  document.getElementById('mUpi').classList.remove('active');
+};
+
+document.getElementById('payBtn').onclick = async () => {
+  const email = document.getElementById('email').value.trim();
+  const btn = document.getElementById('payBtn');
+  setNotice(document.getElementById('globalNotice'), '', '');
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return setNotice(document.getElementById('globalNotice'), 'bad', 'Enter a valid email address.');
+  }
+  if (!API_BASE) {
+    // No backend deployed yet — this is expected until payments/README.md's
+    // deploy step is done. Offer WhatsApp right here instead of a dead end.
+    document.getElementById('fallbackPanel').hidden = false;
+    document.getElementById('waFallback').href = waLink();
+    document.getElementById('fallbackPanel').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    return setNotice(document.getElementById('globalNotice'), 'info', 'Online payment is being switched on for this store — order on WhatsApp below for now and we\'ll send a secure payment link.');
+  }
+  btn.disabled = true; btn.textContent = 'Please wait…';
+  try {
+    const order = await api('/api/orders', { method: 'POST', body: JSON.stringify({ bookIds, email, method }) });
+    document.getElementById('emailPanel').hidden = true;
+    if (method === 'razorpay') startRazorpay(order);
+    else startCrypto(order);
+  } catch (err) {
+    setNotice(document.getElementById('globalNotice'), 'bad', err.message || 'Something went wrong — please try again.');
+    document.getElementById('fallbackPanel').hidden = false;
+    document.getElementById('waFallback').href = waLink();
+  } finally {
+    btn.disabled = false; btn.textContent = 'Continue';
+  }
+};
+
+function showDone(downloadUrl) {
+  clearInterval(pollTimer);
+  document.getElementById('upiPanel').hidden = true;
+  document.getElementById('cryptoPanel').hidden = true;
+  document.getElementById('donePanel').hidden = false;
+  document.getElementById('downloadNow').href = API_BASE + downloadUrl;
+}
+
+function pollOrder(orderId) {
+  pollTimer = setInterval(async () => {
+    try {
+      const o = await api(`/api/orders/${orderId}`);
+      if (o.status === 'paid' || o.status === 'delivered') showDone(o.downloadUrl);
+    } catch (_) { /* keep polling */ }
+  }, 2500);
+}
+
+function startRazorpay(order) {
+  document.getElementById('upiPanel').hidden = false;
+  const script = document.createElement('script');
+  script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+  script.onload = () => {
+    const rz = new Razorpay({
+      key: order.keyId,
+      order_id: order.razorpayOrderId,
+      amount: order.amountInr * 100,
+      currency: 'INR',
+      name: 'HackLearn Press',
+      description: `${bookIds.length} book${bookIds.length > 1 ? 's' : ''}`,
+      handler: () => pollOrder(order.orderId), // payment succeeded client-side; webhook confirms server-side
+      modal: { ondismiss: () => setNotice(document.getElementById('upiStatus'), 'info', 'Payment window closed — you can try again.') },
+    });
+    rz.open();
+    pollOrder(order.orderId); // also start polling immediately in case the user already paid via QR before the handler fires
+  };
+  document.body.appendChild(script);
+}
+
+function startCrypto(order) {
+  document.getElementById('cryptoPanel').hidden = false;
+  document.getElementById('usdtAmt').textContent = order.usdtAmount + ' USDT';
+  document.getElementById('usdtAddr').textContent = order.usdtAddress;
+  try {
+    new QRCode(document.getElementById('qr'), { text: order.usdtAddress, width: 180, height: 180 });
+  } catch (_) { /* QR lib failed to load — address text above still works */ }
+
+  document.getElementById('submitTx').onclick = async () => {
+    const txHash = document.getElementById('txHash').value.trim();
+    const btn = document.getElementById('submitTx');
+    setNotice(document.getElementById('cryptoNotice'), '', '');
+    if (!txHash) return setNotice(document.getElementById('cryptoNotice'), 'bad', 'Paste the transaction hash first.');
+    btn.disabled = true; btn.textContent = 'Verifying…';
+    try {
+      const res = await api(`/api/orders/${order.orderId}/crypto-submit`, { method: 'POST', body: JSON.stringify({ txHash }) });
+      if (res.status === 'paid' || res.status === 'delivered') showDone(res.downloadUrl);
+      else setNotice(document.getElementById('cryptoNotice'), 'bad', res.error || 'Not confirmed yet — it may still be mining, try again shortly.');
+    } catch (err) {
+      setNotice(document.getElementById('cryptoNotice'), 'bad', err.message || 'Could not verify — try again in a minute.');
+    } finally {
+      btn.disabled = false; btn.textContent = "I've sent it — verify payment";
+    }
+  };
+}
+
+init();
+</script>
+</body>
+</html>

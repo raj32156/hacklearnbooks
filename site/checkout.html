@@ -46,7 +46,7 @@ footer{color:var(--muted);font-size:13px;margin-top:30px;text-align:center}
 <div class="w">
 <header><a href="index.html">HackLearn Press</a></header>
 <h1>Checkout</h1>
-<p class="muted" id="subtitle">Review your order, then pay by UPI/card or crypto.</p>
+<p class="muted" id="subtitle">Review your order, then pay by UPI or crypto.</p>
 
 <div class="panel">
   <ul class="items" id="items"></ul>
@@ -61,19 +61,12 @@ footer{color:var(--muted);font-size:13px;margin-top:30px;text-align:center}
 
   <label>Pay with</label>
   <div class="methods">
-    <button type="button" id="mUpi" class="active">UPI / Card / Netbanking</button>
+    <button type="button" id="mUpiManual" class="active">UPI — Pay Directly</button>
     <button type="button" id="mCrypto">Crypto (USDT · TRC20)</button>
-    <button type="button" id="mUpiManual">UPI — Pay Directly</button>
   </div>
 
   <button class="btn" id="payBtn">Continue</button>
   <div id="globalNotice"></div>
-</div>
-
-<!-- UPI/card flow: Razorpay's own checkout popup handles the QR + UPI-app intent on mobile automatically -->
-<div class="panel" id="upiPanel" hidden>
-  <p>Opening secure Razorpay checkout&hellip; on your phone this shows a UPI QR and lets you pay directly with any UPI app installed.</p>
-  <div id="upiStatus" class="notice info"><span class="spin"></span>Waiting for payment confirmation&hellip;</div>
 </div>
 
 <!-- Crypto flow -->
@@ -152,7 +145,7 @@ const sumEl = document.getElementById('sum'), discRow = document.getElementById(
 const inr = n => '₹' + Math.round(n).toLocaleString('en-IN');
 
 let currentPrice = null;
-let method = 'razorpay';
+let method = 'upi_manual';
 let pollTimer = null;
 
 function setNotice(el, kind, msg) {
@@ -220,22 +213,14 @@ async function init() {
   }
 }
 
-document.getElementById('mUpi').onclick = () => {
-  method = 'razorpay';
-  document.getElementById('mUpi').classList.add('active');
-  document.getElementById('mCrypto').classList.remove('active');
-  document.getElementById('mUpiManual').classList.remove('active');
-};
 document.getElementById('mCrypto').onclick = () => {
   method = 'crypto';
   document.getElementById('mCrypto').classList.add('active');
-  document.getElementById('mUpi').classList.remove('active');
   document.getElementById('mUpiManual').classList.remove('active');
 };
 document.getElementById('mUpiManual').onclick = () => {
   method = 'upi_manual';
   document.getElementById('mUpiManual').classList.add('active');
-  document.getElementById('mUpi').classList.remove('active');
   document.getElementById('mCrypto').classList.remove('active');
 };
 
@@ -258,8 +243,7 @@ document.getElementById('payBtn').onclick = async () => {
   try {
     const order = await api('/api/orders', { method: 'POST', body: JSON.stringify({ bookIds, email, method }) });
     document.getElementById('emailPanel').hidden = true;
-    if (method === 'razorpay') startRazorpay(order);
-    else if (method === 'crypto') startCrypto(order);
+    if (method === 'crypto') startCrypto(order);
     else startUpiManual(order);
   } catch (err) {
     setNotice(document.getElementById('globalNotice'), 'bad', err.message || 'Something went wrong — please try again.');
@@ -272,7 +256,6 @@ document.getElementById('payBtn').onclick = async () => {
 
 function showDone(downloadUrl) {
   clearInterval(pollTimer);
-  document.getElementById('upiPanel').hidden = true;
   document.getElementById('cryptoPanel').hidden = true;
   document.getElementById('upiManualPanel').hidden = true;
   document.getElementById('donePanel').hidden = false;
@@ -286,27 +269,6 @@ function pollOrder(orderId) {
       if (o.status === 'paid' || o.status === 'delivered') showDone(o.downloadUrl);
     } catch (_) { /* keep polling */ }
   }, 2500);
-}
-
-function startRazorpay(order) {
-  document.getElementById('upiPanel').hidden = false;
-  const script = document.createElement('script');
-  script.src = 'https://checkout.razorpay.com/v1/checkout.js';
-  script.onload = () => {
-    const rz = new Razorpay({
-      key: order.keyId,
-      order_id: order.razorpayOrderId,
-      amount: order.amountInr * 100,
-      currency: 'INR',
-      name: 'HackLearn Press',
-      description: `${bookIds.length} book${bookIds.length > 1 ? 's' : ''}`,
-      handler: () => pollOrder(order.orderId), // payment succeeded client-side; webhook confirms server-side
-      modal: { ondismiss: () => setNotice(document.getElementById('upiStatus'), 'info', 'Payment window closed — you can try again.') },
-    });
-    rz.open();
-    pollOrder(order.orderId); // also start polling immediately in case the user already paid via QR before the handler fires
-  };
-  document.body.appendChild(script);
 }
 
 function startCrypto(order) {

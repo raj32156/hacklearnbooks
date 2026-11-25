@@ -14,6 +14,7 @@ const helmet = require('helmet');
 const cors = require('cors');
 const multer = require('multer');
 const archiver = require('archiver');
+const rateLimit = require('express-rate-limit');
 const { v4: uuid } = require('uuid');
 
 const catalog = require('./catalog');
@@ -28,10 +29,48 @@ const { newDownloadToken, isExpired } = require('./tokens');
 
 const app = express();
 const PORT = process.env.PORT || 8787;
-const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN || '*';
+
+// Default to the storefront's own real origins instead of '*'. This is a
+// defense-in-depth measure — this API isn't cookie-authenticated, so CORS
+// alone was never the thing standing between an attacker and the admin key,
+// but a wildcard still lets any arbitrary website script a browser into
+// calling these endpoints directly, which is just unnecessary exposure.
+// Override with a comma-separated FRONTEND_ORIGIN env var if the storefront
+// ever moves to a different domain.
+const DEFAULT_ALLOWED_ORIGINS = [
+  'https://hacklearnraj.in',
+  'https://www.hacklearnraj.in',
+];
+const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN
+  ? process.env.FRONTEND_ORIGIN.split(',').map(s => s.trim()).filter(Boolean)
+  : DEFAULT_ALLOWED_ORIGINS;
 
 app.use(helmet());
-app.use(cors({ origin: FRONTEND_ORIGIN }));
+app.set('trust proxy', 1); // Render sits behind a proxy; needed for rate-limit to key on the real client IP
+app.use(cors({
+  origin(origin, cb) {
+    // No Origin header (curl, server-to-server, the Razorpay webhook) is
+    // always allowed through — CORS only ever governs browser requests.
+    if (!origin || FRONTEND_ORIGIN.includes(origin)) return cb(null, true);
+    cb(new Error('not allowed by CORS'));
+  },
+}));
+
+// Rate limiting — every route here is either public-facing (so open to
+// anyone on the internet) or protects the single admin secret, and neither
+// had any throttling before. Limits are generous for a real customer but
+// cut off scripted abuse (order-creation spam, UTR/screenshot-submission
+// spam, and — most importantly — brute-forcing ADMIN_API_KEY).
+const orderLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, max: 60,
+  standardHeaders: true, legacyHeaders: false,
+  message: { error: 'too many requests — please slow down and try again shortly' },
+});
+const adminLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, max: 100,
+  standardHeaders: true, legacyHeaders: false,
+  message: { error: 'too many admin requests — please slow down and try again shortly' },
+});
 
 // Capture the raw body for every request (cheap) so the Razorpay webhook
 // route can verify the HMAC signature against the exact bytes Razorpay sent.
@@ -46,16 +85,45 @@ const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '..', 'data');
 const SCREENSHOT_DIR = path.join(DATA_DIR, 'screenshots');
 fs.mkdirSync(SCREENSHOT_DIR, { recursive: true });
 
+// Only real raster image types — never SVG. An SVG can carry an inline
+// <script>, and this file later gets served back out (to the admin, via
+// GET /api/admin/screenshot/:orderId) with a Content-Type derived from its
+// extension; letting one through would be a stored-XSS vector against the
+// admin dashboard, whose session is just a key sitting in localStorage, i.e.
+// a full compromise of the store. mimetype is attacker-supplied (whatever
+// the client claims) so it's paired with an extension allowlist below as a
+// second check, not trusted alone.
+const ALLOWED_SCREENSHOT_EXT = new Set(['.jpg', '.jpeg', '.png', '.webp', '.heic', '.heif']);
+const ALLOWED_SCREENSHOT_MIME = /^image\/(jpeg|png|webp|heic|heif)$/;
+
+// Order ids are always server-generated UUIDs (see uuid() in POST
+// /api/orders). Rejecting anything that doesn't look like one before it
+// ever reaches multer closes off a path-traversal bug: Express decodes
+// %2f/%2e sequences in a route param *after* matching the route, so
+// req.params.id can otherwise contain "../" and multer's diskStorage does
+// no sanitization of the filename callback's output — a crafted order id in
+// the URL could have written the uploaded file anywhere on disk.
+const ORDER_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 const upload = multer({
   storage: multer.diskStorage({
     destination: (_req, _file, cb) => cb(null, SCREENSHOT_DIR),
     filename: (req, file, cb) => {
-      const ext = (path.extname(file.originalname) || '.jpg').toLowerCase().replace(/[^a-z0-9.]/g, '') || '.jpg';
-      cb(null, `${req.params.id}-${Date.now()}${ext}`);
+      const ext = (path.extname(file.originalname) || '.jpg').toLowerCase().replace(/[^a-z0-9.]/g, '');
+      const safeExt = ALLOWED_SCREENSHOT_EXT.has(ext) ? ext : '.jpg';
+      // req.params.id is re-validated against ORDER_ID_RE below before this
+      // middleware ever runs, but a plain alnum/hyphen strip stays here too
+      // as a second, independent layer against any future route change.
+      const safeId = String(req.params.id || '').replace(/[^a-zA-Z0-9-]/g, '').slice(0, 64) || 'unknown';
+      cb(null, `${safeId}-${Date.now()}-${crypto.randomBytes(4).toString('hex')}${safeExt}`);
     },
   }),
   limits: { fileSize: 8 * 1024 * 1024 }, // 8MB is plenty for a payment-app screenshot
-  fileFilter: (_req, file, cb) => cb(null, /^image\//.test(file.mimetype)),
+  fileFilter: (_req, file, cb) => {
+    const ext = path.extname(file.originalname || '').toLowerCase();
+    const ok = ALLOWED_SCREENSHOT_MIME.test(file.mimetype) && (ext === '' || ALLOWED_SCREENSHOT_EXT.has(ext));
+    cb(null, ok);
+  },
 });
 
 const USDT_INR_RATE = Number(process.env.USDT_INR_RATE || 90); // update as the rate moves; see README
@@ -83,9 +151,16 @@ app.post('/api/price', (req, res) => {
 });
 
 // ------------------------------------------------------------- new order
-app.post('/api/orders', async (req, res) => {
+app.post('/api/orders', orderLimiter, async (req, res) => {
   const { bookIds, email, method } = req.body || {};
-  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+  // Excludes <, >, ", ' and backtick on top of the original shape check —
+  // a valid-looking email like <script>...</script>@x.com otherwise passes
+  // a bare "has an @ and a dot" regex, gets stored, and is later rendered on
+  // the admin dashboard. admin.js now HTML-escapes this field too (belt and
+  // suspenders), but there's no reason to accept those characters in an
+  // email address in the first place.
+  if (!email || typeof email !== 'string' || email.length > 254 ||
+      !/^[^\s@<>"'`]+@[^\s@<>"'`]+\.[^\s@<>"'`]+$/.test(email)) {
     return res.status(400).json({ error: 'a valid email address is required' });
   }
   if (!['razorpay', 'crypto', 'upi_manual'].includes(method)) {
@@ -172,7 +247,7 @@ app.get('/api/orders/:id', (req, res) => {
 });
 
 // ---------------------------------------------------------- crypto submit
-app.post('/api/orders/:id/crypto-submit', async (req, res) => {
+app.post('/api/orders/:id/crypto-submit', orderLimiter, async (req, res) => {
   const order = db.getOrder(req.params.id);
   if (!order) return res.status(404).json({ error: 'order not found' });
   if (order.method !== 'crypto') return res.status(400).json({ error: 'this order is not a crypto order' });
@@ -207,7 +282,13 @@ app.post('/api/orders/:id/crypto-submit', async (req, res) => {
 // gateway) and is now submitting their proof. This does NOT mark the order
 // paid — it moves it to 'awaiting_review' for the owner to approve on the
 // admin dashboard. See upi.js for why this step can't be fully automatic.
-app.post('/api/orders/:id/upi-submit', (req, res, next) => {
+app.post('/api/orders/:id/upi-submit', orderLimiter, (req, res, next) => {
+  // Validated here, before multer runs — see the ORDER_ID_RE comment above
+  // for why this specifically has to happen before the upload middleware,
+  // not just inside the handler below.
+  if (!ORDER_ID_RE.test(req.params.id)) return res.status(400).json({ error: 'order not found' });
+  next();
+}, (req, res, next) => {
   upload.single('screenshot')(req, res, (err) => {
     if (err) return res.status(400).json({ error: err.message || 'could not read that upload' });
     next();
@@ -224,8 +305,18 @@ app.post('/api/orders/:id/upi-submit', (req, res, next) => {
     return res.status(409).json({ status: order.status, error: 'this order already has a submission awaiting review' });
   }
 
-  const utr = String(req.body?.utr || '').trim();
+  // Some payment apps display the reference with spaces or hyphens if a
+  // customer copies it with formatting intact — strip those before
+  // validating rather than rejecting a perfectly real UTR over it.
+  const utr = String(req.body?.utr || '').trim().replace(/[\s-]+/g, '');
   if (!utr) return res.status(400).json({ error: 'UTR / transaction reference number is required' });
+  // Real UPI/bank reference numbers are alphanumeric, typically 10-22
+  // characters. Enforcing that shape here (rather than only escaping on
+  // display) closes off the same stored-XSS angle as the email check above —
+  // this field is rendered on the admin dashboard too.
+  if (!/^[a-zA-Z0-9]{4,40}$/.test(utr)) {
+    return res.status(400).json({ error: 'that doesn\'t look like a valid UTR / reference number (letters and numbers only)' });
+  }
   if (!req.file) return res.status(400).json({ error: 'a payment screenshot is required' });
   if (db.utrAlreadyUsed(utr)) {
     fs.unlink(req.file.path, () => {});
@@ -340,12 +431,12 @@ function requireAdmin(req, res, next) {
   next();
 }
 
-app.get('/api/admin/orders', requireAdmin, (_req, res) => {
+app.get('/api/admin/orders', adminLimiter, requireAdmin, (_req, res) => {
   const rows = db.db.prepare('SELECT id, email, book_ids, method, status, amount_inr, usdt_amount, tx_hash, utr, screenshot_path, reject_reason, created_at, paid_at FROM orders ORDER BY created_at DESC LIMIT 200').all();
   res.json({ orders: rows });
 });
 
-app.post('/api/admin/orders/:id/confirm', requireAdmin, async (req, res) => {
+app.post('/api/admin/orders/:id/confirm', adminLimiter, requireAdmin, async (req, res) => {
   const order = db.getOrder(req.params.id);
   if (!order) return res.status(404).json({ error: 'order not found' });
   if (!['pending', 'awaiting_review'].includes(order.status)) return res.json({ status: order.status });
@@ -359,7 +450,7 @@ app.post('/api/admin/orders/:id/confirm', requireAdmin, async (req, res) => {
 // Screenshot didn't check out (wrong amount, doesn't match, looks edited).
 // Sends the order back to 'pending' so the customer can submit again, and
 // frees the UTR in case it was a genuine typo.
-app.post('/api/admin/orders/:id/reject', requireAdmin, (req, res) => {
+app.post('/api/admin/orders/:id/reject', adminLimiter, requireAdmin, (req, res) => {
   const order = db.getOrder(req.params.id);
   if (!order) return res.status(404).json({ error: 'order not found' });
   const changed = db.rejectManualUpi(order.id, req.body?.reason || null);
@@ -370,7 +461,7 @@ app.post('/api/admin/orders/:id/reject', requireAdmin, (req, res) => {
 // Serves an uploaded payment screenshot for the admin dashboard to display.
 // Key-in-query (not just header) because a plain <img src> can't set
 // custom headers — same timingSafeEqual check as every other admin route.
-app.get('/api/admin/screenshot/:orderId', requireAdmin, (req, res) => {
+app.get('/api/admin/screenshot/:orderId', adminLimiter, requireAdmin, (req, res) => {
   const order = db.getOrder(req.params.orderId);
   if (!order || !order.screenshot_path) return res.status(404).send('not found');
   const filePath = path.join(SCREENSHOT_DIR, order.screenshot_path);
@@ -383,7 +474,7 @@ app.get('/api/admin/screenshot/:orderId', requireAdmin, (req, res) => {
 // call from the orders table. Cheap enough at this store's volume to not
 // need caching; revisit only if the order count grows into the tens of
 // thousands.
-app.get('/api/admin/stats', requireAdmin, (_req, res) => {
+app.get('/api/admin/stats', adminLimiter, requireAdmin, (_req, res) => {
   const rows = db.db.prepare("SELECT book_ids, email, sum_inr, amount_inr, discount_percent, method, status, created_at FROM orders").all();
 
   const paidRows = rows.filter(r => r.status === 'paid' || r.status === 'delivered');
@@ -427,7 +518,7 @@ app.get('/api/admin/stats', requireAdmin, (_req, res) => {
 // this periodically (weekly is reasonable at this volume) and keep a copy
 // somewhere else — or wire DATA_DIR's contents up to an S3-compatible bucket
 // once you have one; this endpoint is the manual stopgap until then.
-app.get('/api/admin/backup', requireAdmin, (req, res) => {
+app.get('/api/admin/backup', adminLimiter, requireAdmin, (req, res) => {
   const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
   res.set('Content-Type', 'application/zip');
   res.set('Content-Disposition', `attachment; filename="hacklearn-backup-${stamp}.zip"`);
@@ -476,5 +567,18 @@ app.get('/healthz', (_req, res) => res.json({
 if (tron.isConfigured() && !tron.isValidAddressFormat(process.env.TRON_USDT_ADDRESS)) {
   console.error(`[startup] TRON_USDT_ADDRESS "${process.env.TRON_USDT_ADDRESS}" does not look like a valid Tron address — crypto payments would fail. Fix it before accepting orders.`);
 }
+
+// Catch-all error handler — must be last. Without this, an uncaught error
+// anywhere (a CORS rejection, a bad-JSON body, anything) falls through to
+// Express's default handler, which renders a full stack trace to the client
+// whenever NODE_ENV isn't exactly "production". That's an information leak
+// (file paths, dependency versions, internal logic) that doesn't depend on
+// setting NODE_ENV correctly on every host — this makes it true regardless.
+app.use((err, req, res, _next) => {
+  console.error('[unhandled]', err.message);
+  if (res.headersSent) return;
+  const status = err.message === 'not allowed by CORS' ? 403 : (err.status || 500);
+  res.status(status).json({ error: status === 500 ? 'something went wrong' : err.message });
+});
 
 app.listen(PORT, () => console.log(`HackLearn payments backend listening on :${PORT}`));

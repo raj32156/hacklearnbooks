@@ -10,6 +10,20 @@ let orders = [];
 
 const $ = (sel) => document.querySelector(sel);
 
+// Every field below that comes from a customer (email at checkout, UTR typed
+// in at UPI submission, a rejection reason typed by you) gets rendered with
+// this before it ever goes into innerHTML. Server-side validation on these
+// fields is loose by design (an email just needs an @ and a dot; a UTR is
+// free text) — it was never meant to stop someone writing a <script> tag
+// into their own order's email or UTR, and without this escaping that script
+// would run here, in this dashboard, with your admin key sitting right next
+// to it in localStorage.
+function escapeHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  }[c]));
+}
+
 function fmtAmount(order) {
   if (order.method === 'crypto') return `₹${order.amount_inr} (${order.usdt_amount} USDT)`;
   return `₹${order.amount_inr}`;
@@ -128,13 +142,13 @@ function renderList() {
             <span class="badge ${o.status}">${o.status.replace('_', ' ')}</span>
           </div>
           <div class="kv">
-            <div><b>${o.email}</b></div>
+            <div><b>${escapeHtml(o.email)}</b></div>
             <div>${books.length} book${books.length > 1 ? 's' : ''} · ${fmtMethod(o.method)}</div>
             <div>Ordered ${fmtTime(o.created_at)}${o.paid_at ? ' · Paid ' + fmtTime(o.paid_at) : ''}</div>
-            ${o.utr ? `<div>UTR: <span class="copy" title="click to copy" data-copy="${o.utr}">${o.utr}</span></div>` : ''}
-            ${o.tx_hash ? `<div>Tx hash: <span class="copy" title="click to copy" data-copy="${o.tx_hash}">${o.tx_hash.slice(0, 18)}…</span></div>` : ''}
-            <div style="opacity:.6">Order ${o.id}</div>
-            ${o.reject_reason ? `<div style="color:var(--danger)">Previously rejected: ${o.reject_reason}</div>` : ''}
+            ${o.utr ? `<div>UTR: <span class="copy" title="click to copy" data-copy="${escapeHtml(o.utr)}">${escapeHtml(o.utr)}</span></div>` : ''}
+            ${o.tx_hash ? `<div>Tx hash: <span class="copy" title="click to copy" data-copy="${escapeHtml(o.tx_hash)}">${escapeHtml(o.tx_hash.slice(0, 18))}…</span></div>` : ''}
+            <div style="opacity:.6">Order ${escapeHtml(o.id)}</div>
+            ${o.reject_reason ? `<div style="color:var(--danger)">Previously rejected: ${escapeHtml(o.reject_reason)}</div>` : ''}
           </div>
           ${isReview ? `
           <div class="actions">

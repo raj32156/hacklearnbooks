@@ -154,7 +154,7 @@ app.post('/api/orders', async (req, res) => {
     payeeName: process.env.UPI_PAYEE_NAME || 'HackLearn Press',
     upiLink: upi.buildUpiLink({ amountInr: price.totalInr, orderId: id }),
     amountInr: price.totalInr,
-    note: 'Pay to this UPI ID, then upload your payment screenshot and UTR below. A real person reviews and approves it — usually fast, but not instant.',
+    note: 'Pay to this UPI ID, then upload your payment screenshot and UTR below. A real person reviews and approves it — please allow up to 20-30 minutes.',
   });
 });
 
@@ -234,7 +234,7 @@ app.post('/api/orders/:id/upi-submit', (req, res, next) => {
     fs.unlink(req.file.path, () => {});
     return res.status(409).json({ error: 'this order is no longer waiting for a submission' });
   }
-  res.json({ status: 'awaiting_review', note: 'Submitted — the store owner reviews payment proofs and approves them, usually quickly. You\'ll get an email, or you can check back here.' });
+  res.json({ status: 'awaiting_review', note: 'Submitted — your payment will be verified within 20-30 minutes. You\'ll get an email once it\'s approved, or you can check back here.' });
 });
 
 // -------------------------------------------------------- razorpay webhook

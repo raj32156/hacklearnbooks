@@ -13,6 +13,7 @@ const express = require('express');
 const helmet = require('helmet');
 const cors = require('cors');
 const multer = require('multer');
+const archiver = require('archiver');
 const { v4: uuid } = require('uuid');
 
 const catalog = require('./catalog');
@@ -21,6 +22,8 @@ const razorpay = require('./razorpay');
 const tron = require('./tron');
 const upi = require('./upi');
 const mailer = require('./mailer');
+const notify = require('./notify');
+const watermark = require('./watermark');
 const { newDownloadToken, isExpired } = require('./tokens');
 
 const app = express();
@@ -235,6 +238,12 @@ app.post('/api/orders/:id/upi-submit', (req, res, next) => {
     return res.status(409).json({ error: 'this order is no longer waiting for a submission' });
   }
   res.json({ status: 'awaiting_review', note: 'Submitted — your payment will be verified within 20-30 minutes. You\'ll get an email once it\'s approved, or you can check back here.' });
+
+  // Fire-and-forget — never let a notification hiccup affect the response above.
+  const adminLink = `${process.env.PUBLIC_BASE_URL || ''}/admin.html`;
+  notify.notifyOwner(
+    `New UPI payment to review: ₹${order.amount_inr} from ${order.email}\nUTR: ${utr}\n${adminLink}`
+  ).catch(() => {});
 });
 
 // -------------------------------------------------------- razorpay webhook
@@ -277,7 +286,7 @@ app.post('/api/webhooks/razorpay', async (req, res) => {
 // --------------------------------------------------------------- download
 const PDF_DIR = process.env.PDF_DIR || path.join(__dirname, '..', 'pdfs');
 
-app.get('/download/:token', (req, res) => {
+app.get('/download/:token', async (req, res) => {
   const order = db.getOrderByDownloadToken(req.params.token);
   if (!order) return res.status(404).send('Link not found.');
   if (!['paid', 'delivered'].includes(order.status)) return res.status(403).send('Payment not confirmed yet.');
@@ -297,7 +306,21 @@ app.get('/download/:token', (req, res) => {
   const filePath = path.join(PDF_DIR, book.file);
   if (!fs.existsSync(filePath)) return res.status(500).send('File missing on server — contact support.');
   db.markDelivered(order.id);
-  res.download(filePath, `${book.title}.pdf`);
+
+  // Stamp a traceable "Licensed to <email> · Order <id>" footer on every page
+  // before handing it over — see watermark.js for exactly what this does and
+  // doesn't protect against. Done on the fly so the 18 source PDFs on disk
+  // never need touching.
+  try {
+    const original = fs.readFileSync(filePath);
+    const stamped = await watermark.watermarkPdf(original, { email: order.email, orderId: order.id });
+    res.set('Content-Type', 'application/pdf');
+    res.set('Content-Disposition', `attachment; filename="${book.title}.pdf"`);
+    return res.send(stamped);
+  } catch (err) {
+    console.error(`[watermark] failed for order ${order.id}, book ${book.id} — sending unwatermarked file instead`, err.message);
+    return res.download(filePath, `${book.title}.pdf`);
+  }
 });
 
 // ----------------------------------------------------------------- admin
@@ -355,6 +378,76 @@ app.get('/api/admin/screenshot/:orderId', requireAdmin, (req, res) => {
   res.sendFile(filePath);
 });
 
+// --------------------------------------------------------- sales analytics
+// Revenue, order breakdown and best-selling books — computed fresh on every
+// call from the orders table. Cheap enough at this store's volume to not
+// need caching; revisit only if the order count grows into the tens of
+// thousands.
+app.get('/api/admin/stats', requireAdmin, (_req, res) => {
+  const rows = db.db.prepare("SELECT book_ids, email, sum_inr, amount_inr, discount_percent, method, status, created_at FROM orders").all();
+
+  const paidRows = rows.filter(r => r.status === 'paid' || r.status === 'delivered');
+  const totalRevenue = paidRows.reduce((sum, r) => sum + r.amount_inr, 0);
+
+  const byStatus = {};
+  const byMethod = {};
+  for (const r of rows) {
+    byStatus[r.status] = (byStatus[r.status] || 0) + 1;
+    byMethod[r.method] = (byMethod[r.method] || 0) + 1;
+  }
+
+  const bookCounts = {};
+  for (const r of paidRows) {
+    for (const id of JSON.parse(r.book_ids || '[]')) bookCounts[id] = (bookCounts[id] || 0) + 1;
+  }
+  const topBooks = Object.entries(bookCounts)
+    .map(([id, count]) => ({ id, title: catalog.BY_ID[id]?.title || id, count }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 10);
+
+  const uniqueCustomers = new Set(paidRows.map(r => r.email.toLowerCase())).size;
+
+  res.json({
+    totalOrders: rows.length,
+    paidOrders: paidRows.length,
+    totalRevenueInr: totalRevenue,
+    uniqueCustomers,
+    byStatus,
+    byMethod,
+    topBooks,
+  });
+});
+
+// ------------------------------------------------------------------ backup
+// On-demand zip of the SQLite order database + every uploaded payment
+// screenshot — click-to-download from /admin.html. This protects against an
+// application-level mistake (a bad migration, an accidental delete) but NOT
+// against the underlying disk itself failing, since the zip is built from
+// the same disk it's backing up. For real off-disk durability, download
+// this periodically (weekly is reasonable at this volume) and keep a copy
+// somewhere else — or wire DATA_DIR's contents up to an S3-compatible bucket
+// once you have one; this endpoint is the manual stopgap until then.
+app.get('/api/admin/backup', requireAdmin, (req, res) => {
+  const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
+  res.set('Content-Type', 'application/zip');
+  res.set('Content-Disposition', `attachment; filename="hacklearn-backup-${stamp}.zip"`);
+
+  const archive = archiver('zip', { zlib: { level: 9 } });
+  archive.on('error', (err) => {
+    console.error('[backup] archive error', err);
+    if (!res.headersSent) res.status(500);
+    res.end();
+  });
+  archive.pipe(res);
+  if (fs.existsSync(path.join(DATA_DIR, 'orders.db'))) {
+    archive.file(path.join(DATA_DIR, 'orders.db'), { name: 'orders.db' });
+  }
+  if (fs.existsSync(SCREENSHOT_DIR)) {
+    archive.directory(SCREENSHOT_DIR, 'screenshots');
+  }
+  archive.finalize();
+});
+
 // The dashboard page itself (public/admin.html + admin.js). Protected by
 // nothing at the HTTP level (it's just static HTML/JS) — every data call it
 // makes requires the admin key, entered once and kept in that browser.
@@ -377,6 +470,7 @@ app.get('/healthz', (_req, res) => res.json({
   upiManualConfigured: upi.isConfigured(),
   mailerConfigured: mailer.isConfigured(),
   adminConfigured: !!process.env.ADMIN_API_KEY,
+  whatsappNotifyConfigured: notify.isConfigured(),
 }));
 
 if (tron.isConfigured() && !tron.isValidAddressFormat(process.env.TRON_USDT_ADDRESS)) {

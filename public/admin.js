@@ -47,6 +47,7 @@ function openApp() {
   $('#gate').hidden = true;
   $('#appHeader').hidden = false;
   $('#appMain').hidden = false;
+  $('#backupLink').href = `/api/admin/backup?key=${encodeURIComponent(ADMIN_KEY)}`;
   load();
 }
 function signOut(message) {
@@ -65,7 +66,16 @@ $('#gateGo').addEventListener('click', () => {
 });
 $('#gateKey').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('#gateGo').click(); });
 $('#logoutBtn').addEventListener('click', () => signOut());
-$('#refreshBtn').addEventListener('click', load);
+$('#refreshBtn').addEventListener('click', () => currentView === 'stats' ? loadStats() : load());
+
+let currentView = 'orders';
+document.querySelectorAll('#viewTabs .tab').forEach(el => el.addEventListener('click', () => {
+  currentView = el.dataset.view;
+  document.querySelectorAll('#viewTabs .tab').forEach(t => t.classList.toggle('active', t === el));
+  $('#ordersView').hidden = currentView !== 'orders';
+  $('#statsView').hidden = currentView !== 'stats';
+  if (currentView === 'stats') loadStats(); else load();
+}));
 
 const TABS = [
   { id: 'awaiting_review', label: 'Awaiting review' },
@@ -185,6 +195,29 @@ async function load() {
     $('#status').textContent = `${orders.length} order${orders.length === 1 ? '' : 's'} loaded, newest first.`;
     renderTabs();
     renderList();
+  } catch (err) {
+    if (err.message !== 'unauthorized') $('#status').textContent = 'Error: ' + err.message;
+  }
+}
+
+async function loadStats() {
+  $('#status').textContent = 'Loading stats…';
+  try {
+    const s = await api('/api/admin/stats');
+    const statusLine = Object.entries(s.byStatus).map(([k, v]) => `${k.replace('_', ' ')}: ${v}`).join(' · ');
+    const methodLine = Object.entries(s.byMethod).map(([k, v]) => `${fmtMethod(k)}: ${v}`).join(' · ');
+    $('#statsCards').innerHTML = `
+      <div class="card"><div class="label">Total revenue (paid)</div><div class="value">₹${s.totalRevenueInr.toLocaleString('en-IN')}</div></div>
+      <div class="card"><div class="label">Paid orders</div><div class="value">${s.paidOrders}</div></div>
+      <div class="card"><div class="label">Total orders</div><div class="value">${s.totalOrders}</div></div>
+      <div class="card"><div class="label">Unique customers</div><div class="value">${s.uniqueCustomers}</div></div>
+      <div class="card" style="grid-column:1/-1"><div class="label">By status</div><div style="font-size:14px">${statusLine || '—'}</div></div>
+      <div class="card" style="grid-column:1/-1"><div class="label">By payment method</div><div style="font-size:14px">${methodLine || '—'}</div></div>
+    `;
+    $('#topBooksList').innerHTML = s.topBooks.length
+      ? s.topBooks.map(b => `<div class="book-row"><span>${b.title}</span><span class="count">${b.count}</span></div>`).join('')
+      : '<div class="empty">No paid orders yet.</div>';
+    $('#status').textContent = 'Stats refreshed.';
   } catch (err) {
     if (err.message !== 'unauthorized') $('#status').textContent = 'Error: ' + err.message;
   }

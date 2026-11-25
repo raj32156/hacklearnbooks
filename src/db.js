@@ -37,6 +37,20 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_tx_hash ON orders(tx_hash) WHERE tx
 CREATE INDEX IF NOT EXISTS idx_orders_razorpay_order_id ON orders(razorpay_order_id);
 `);
 
+// Migration-safe column additions for manual-UPI-with-screenshot orders.
+// Wrapped individually so this never breaks on a database that already has
+// one of these columns (e.g. a redeploy after this feature already ran once).
+function addColumnIfMissing(name, ddl) {
+  const cols = db.prepare('PRAGMA table_info(orders)').all().map(c => c.name);
+  if (!cols.includes(name)) db.exec(`ALTER TABLE orders ADD COLUMN ${ddl}`);
+}
+addColumnIfMissing('utr', 'utr TEXT');
+addColumnIfMissing('screenshot_path', 'screenshot_path TEXT');
+addColumnIfMissing('reject_reason', 'reject_reason TEXT');
+// A given UTR may only ever be attached to one order (anti-replay), same idea
+// as the tx_hash index above. Created after the column exists.
+db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_utr ON orders(utr) WHERE utr IS NOT NULL;`);
+
 function createOrder({ id, bookIds, email, sumInr, discountPercent, amountInr, method, usdtAmount }) {
   db.prepare(`
     INSERT INTO orders (id, book_ids, email, sum_inr, discount_percent, amount_inr, method, usdt_amount, created_at)
@@ -74,10 +88,15 @@ function attachRazorpayOrderId(id, rzpOrderId) {
 // (so the caller knows whether to send the fulfilment email) — guards
 // against a webhook firing twice for the same payment.
 function markPaid(id, { razorpayPaymentId, txHash, downloadToken } = {}) {
+  // 'pending' covers razorpay/crypto orders still waiting on payment;
+  // 'awaiting_review' covers manual-UPI orders where a screenshot+UTR has
+  // been submitted and the owner is about to click Approve. Either is a
+  // valid starting point for this transition — anything else (already
+  // paid/delivered/failed) is left alone, which is what keeps this idempotent.
   const info = db.prepare(`
     UPDATE orders SET status = 'paid', paid_at = ?, razorpay_payment_id = COALESCE(?, razorpay_payment_id),
       tx_hash = COALESCE(?, tx_hash), download_token = COALESCE(?, download_token)
-    WHERE id = ? AND status = 'pending'
+    WHERE id = ? AND status IN ('pending', 'awaiting_review')
   `).run(new Date().toISOString(), razorpayPaymentId || null, txHash || null, downloadToken, id);
   return info.changes === 1;
 }
@@ -91,7 +110,36 @@ function txHashAlreadyUsed(txHash) {
   return !!db.prepare('SELECT 1 FROM orders WHERE tx_hash = ?').get(txHash);
 }
 
+function utrAlreadyUsed(utr) {
+  return !!db.prepare('SELECT 1 FROM orders WHERE utr = ?').get(utr);
+}
+
+// Customer has paid via personal UPI and is submitting their proof. This
+// moves the order from 'pending' to 'awaiting_review' — it is NOT marked
+// paid here. Only an admin clicking Approve (markPaid) releases the books;
+// see upi.js for why this can't be done automatically.
+function submitUpiProof(id, { utr, screenshotPath }) {
+  const info = db.prepare(`
+    UPDATE orders SET status = 'awaiting_review', utr = ?, screenshot_path = ?
+    WHERE id = ? AND status = 'pending'
+  `).run(utr, screenshotPath, id);
+  return info.changes === 1;
+}
+
+// Owner looked at the screenshot and it doesn't check out (wrong amount,
+// doesn't match, looks edited, etc). Clears the proof so the customer can
+// submit again rather than being permanently stuck — also frees up the UTR
+// in case it was a genuine typo.
+function rejectManualUpi(id, reason) {
+  const info = db.prepare(`
+    UPDATE orders SET status = 'pending', utr = NULL, screenshot_path = NULL, reject_reason = ?
+    WHERE id = ? AND status = 'awaiting_review'
+  `).run(reason || null, id);
+  return info.changes === 1;
+}
+
 module.exports = {
   db, createOrder, getOrder, getOrderByRazorpayOrderId, getOrderByDownloadToken,
   attachRazorpayOrderId, markPaid, markDelivered, txHashAlreadyUsed,
+  utrAlreadyUsed, submitUpiProof, rejectManualUpi,
 };

@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HackLearn Press — Order Admin</title>
+<style>
+  :root {
+    --bg: #0b0f17; --panel: #121826; --panel2: #171f30; --border: #243049;
+    --text: #e7ecf5; --muted: #8b96ad; --accent: #4f8cff; --accent2: #38c793;
+    --warn: #e0a93e; --danger: #e4567a;
+    font-family: -apple-system, system-ui, Segoe UI, Roboto, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); min-height: 100vh; }
+  header { padding: 20px 24px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+  header h1 { font-size: 18px; margin: 0; font-weight: 600; letter-spacing: .2px; }
+  header h1 span { color: var(--muted); font-weight: 400; }
+  #keyBar { display: flex; gap: 8px; align-items: center; }
+  #keyBar input { background: var(--panel2); border: 1px solid var(--border); color: var(--text); padding: 8px 10px; border-radius: 8px; font-size: 13px; width: 220px; }
+  #keyBar button, .btn { background: var(--accent); color: #fff; border: none; padding: 8px 14px; border-radius: 8px; font-size: 13px; cursor: pointer; font-weight: 600; }
+  #keyBar button:hover, .btn:hover { filter: brightness(1.08); }
+  main { max-width: 1100px; margin: 0 auto; padding: 20px 24px 60px; }
+  .tabs { display: flex; gap: 6px; margin-bottom: 16px; }
+  .tab { padding: 7px 14px; border-radius: 999px; font-size: 13px; cursor: pointer; border: 1px solid var(--border); color: var(--muted); background: var(--panel); }
+  .tab.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .tab .count { opacity: .85; margin-left: 4px; }
+  #status { font-size: 13px; color: var(--muted); margin-bottom: 14px; min-height: 18px; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 16px; margin-bottom: 12px; }
+  .card.review { border-color: var(--warn); }
+  .row { display: flex; gap: 14px; flex-wrap: wrap; }
+  .meta { flex: 1; min-width: 220px; }
+  .meta .top { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .amount { font-size: 20px; font-weight: 700; }
+  .badge { font-size: 11px; padding: 2px 8px; border-radius: 999px; text-transform: uppercase; letter-spacing: .4px; font-weight: 700; }
+  .badge.pending { background: #3a3220; color: var(--warn); }
+  .badge.awaiting_review { background: #3a2b20; color: var(--warn); }
+  .badge.paid { background: #16342a; color: var(--accent2); }
+  .badge.delivered { background: #16342a; color: var(--accent2); }
+  .badge.failed { background: #3a1f28; color: var(--danger); }
+  .kv { font-size: 13px; color: var(--muted); margin-top: 6px; line-height: 1.6; }
+  .kv b { color: var(--text); font-weight: 600; }
+  .kv .copy { cursor: pointer; border-bottom: 1px dashed var(--muted); }
+  .shot { width: 160px; flex-shrink: 0; }
+  .shot img { width: 100%; border-radius: 8px; border: 1px solid var(--border); cursor: zoom-in; display: block; }
+  .shot .label { font-size: 11px; color: var(--muted); margin-bottom: 4px; }
+  .actions { display: flex; gap: 8px; margin-top: 12px; }
+  .btn.approve { background: var(--accent2); }
+  .btn.reject { background: transparent; border: 1px solid var(--danger); color: var(--danger); }
+  .empty { color: var(--muted); font-size: 14px; padding: 40px 0; text-align: center; }
+  #lightbox { position: fixed; inset: 0; background: rgba(0,0,0,.85); display: none; align-items: center; justify-content: center; z-index: 50; cursor: zoom-out; padding: 20px; }
+  #lightbox img { max-width: 100%; max-height: 100%; border-radius: 8px; }
+  #gate { position: fixed; inset: 0; background: var(--bg); display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 14px; z-index: 100; }
+  #gate input { background: var(--panel2); border: 1px solid var(--border); color: var(--text); padding: 10px 14px; border-radius: 8px; font-size: 14px; width: 280px; }
+  #gate p { color: var(--muted); font-size: 13px; max-width: 320px; text-align: center; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+
+<div id="gate">
+  <h2 style="margin:0">HackLearn Press — Order Admin</h2>
+  <input id="gateKey" type="password" placeholder="Admin key" autocomplete="off">
+  <button class="btn" id="gateGo">Open dashboard</button>
+  <p>This is the same ADMIN_API_KEY you set in the backend's environment variables on Render. It's saved only in this browser.</p>
+</div>
+
+<header hidden id="appHeader">
+  <h1>HackLearn Press <span>— orders</span></h1>
+  <div id="keyBar">
+    <button class="btn" id="refreshBtn">Refresh</button>
+    <button id="logoutBtn" style="background:transparent;border:1px solid var(--border);color:var(--muted);padding:8px 14px;border-radius:8px;cursor:pointer;font-size:13px">Change key</button>
+  </div>
+</header>
+
+<main hidden id="appMain">
+  <div class="tabs" id="tabs"></div>
+  <div id="status"></div>
+  <div id="list"></div>
+</main>
+
+<div id="lightbox"><img id="lightboxImg" alt="payment screenshot"></div>
+
+<script src="admin.js"></script>
+</body>
+</html>

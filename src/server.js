@@ -8,15 +8,18 @@ if (!process.env.TRON_USDT_ADDRESS) process.env.TRON_USDT_ADDRESS = 'TMf2iM2QqPd
 
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 const express = require('express');
 const helmet = require('helmet');
 const cors = require('cors');
+const multer = require('multer');
 const { v4: uuid } = require('uuid');
 
 const catalog = require('./catalog');
 const db = require('./db');
 const razorpay = require('./razorpay');
 const tron = require('./tron');
+const upi = require('./upi');
 const mailer = require('./mailer');
 const { newDownloadToken, isExpired } = require('./tokens');
 
@@ -32,6 +35,25 @@ app.use(cors({ origin: FRONTEND_ORIGIN }));
 app.use(express.json({
   verify: (req, _res, buf) => { req.rawBody = buf; },
 }));
+
+// Screenshots the customer uploads as proof of a manual UPI payment. Kept
+// under DATA_DIR so they live on the same persistent disk as the SQLite file
+// (see db.js) and survive a redeploy on hosts with an ephemeral filesystem.
+const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '..', 'data');
+const SCREENSHOT_DIR = path.join(DATA_DIR, 'screenshots');
+fs.mkdirSync(SCREENSHOT_DIR, { recursive: true });
+
+const upload = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => cb(null, SCREENSHOT_DIR),
+    filename: (req, file, cb) => {
+      const ext = (path.extname(file.originalname) || '.jpg').toLowerCase().replace(/[^a-z0-9.]/g, '') || '.jpg';
+      cb(null, `${req.params.id}-${Date.now()}${ext}`);
+    },
+  }),
+  limits: { fileSize: 8 * 1024 * 1024 }, // 8MB is plenty for a payment-app screenshot
+  fileFilter: (_req, file, cb) => cb(null, /^image\//.test(file.mimetype)),
+});
 
 const USDT_INR_RATE = Number(process.env.USDT_INR_RATE || 90); // update as the rate moves; see README
 const CRYPTO_TOLERANCE = 0.01; // allow the customer to send 1% less (rounding/price-move) before rejecting
@@ -63,8 +85,8 @@ app.post('/api/orders', async (req, res) => {
   if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     return res.status(400).json({ error: 'a valid email address is required' });
   }
-  if (!['razorpay', 'crypto'].includes(method)) {
-    return res.status(400).json({ error: "method must be 'razorpay' or 'crypto'" });
+  if (!['razorpay', 'crypto', 'upi_manual'].includes(method)) {
+    return res.status(400).json({ error: "method must be 'razorpay', 'crypto' or 'upi_manual'" });
   }
   let price;
   try {
@@ -99,21 +121,40 @@ app.post('/api/orders', async (req, res) => {
     }
   }
 
-  // method === 'crypto'
-  if (!tron.isConfigured()) {
-    return res.status(503).json({ error: 'crypto payment is not set up yet on this store — try UPI/card, or check back soon.' });
+  if (method === 'crypto') {
+    if (!tron.isConfigured()) {
+      return res.status(503).json({ error: 'crypto payment is not set up yet on this store — try UPI/card, or check back soon.' });
+    }
+    const usdtAmount = toUsdt(price.totalInr);
+    db.createOrder({
+      id, bookIds: price.ids, email, sumInr: price.sumInr,
+      discountPercent: price.discountPercent, amountInr: price.totalInr, method, usdtAmount,
+    });
+    return res.json({
+      orderId: id,
+      usdtAddress: process.env.TRON_USDT_ADDRESS,
+      usdtAmount,
+      network: 'TRC20 (Tron)',
+      note: 'Send exactly this amount of USDT on the TRC20 network, then submit the transaction hash below.',
+    });
   }
-  const usdtAmount = toUsdt(price.totalInr);
+
+  // method === 'upi_manual' — a stopgap until Razorpay is approved. See
+  // upi.js for exactly what is and isn't verified automatically here.
+  if (!upi.isConfigured()) {
+    return res.status(503).json({ error: 'UPI (manual) payment is not set up yet on this store.' });
+  }
   db.createOrder({
     id, bookIds: price.ids, email, sumInr: price.sumInr,
-    discountPercent: price.discountPercent, amountInr: price.totalInr, method, usdtAmount,
+    discountPercent: price.discountPercent, amountInr: price.totalInr, method,
   });
   return res.json({
     orderId: id,
-    usdtAddress: process.env.TRON_USDT_ADDRESS,
-    usdtAmount,
-    network: 'TRC20 (Tron)',
-    note: 'Send exactly this amount of USDT on the TRC20 network, then submit the transaction hash below.',
+    upiId: process.env.UPI_VPA,
+    payeeName: process.env.UPI_PAYEE_NAME || 'HackLearn Press',
+    upiLink: upi.buildUpiLink({ amountInr: price.totalInr, orderId: id }),
+    amountInr: price.totalInr,
+    note: 'Pay to this UPI ID, then upload your payment screenshot and UTR below. A real person reviews and approves it — usually fast, but not instant.',
   });
 });
 
@@ -156,6 +197,44 @@ app.post('/api/orders/:id/crypto-submit', async (req, res) => {
   }
   const fresh = db.getOrder(order.id);
   res.json({ status: fresh.status, downloadUrl: `/download/${fresh.download_token}` });
+});
+
+// ------------------------------------------------------------ upi-submit
+// Customer has paid the owner's personal UPI ID directly (outside any
+// gateway) and is now submitting their proof. This does NOT mark the order
+// paid — it moves it to 'awaiting_review' for the owner to approve on the
+// admin dashboard. See upi.js for why this step can't be fully automatic.
+app.post('/api/orders/:id/upi-submit', (req, res, next) => {
+  upload.single('screenshot')(req, res, (err) => {
+    if (err) return res.status(400).json({ error: err.message || 'could not read that upload' });
+    next();
+  });
+}, (req, res) => {
+  const order = db.getOrder(req.params.id);
+  if (!order) return res.status(404).json({ error: 'order not found' });
+  if (order.method !== 'upi_manual') return res.status(400).json({ error: 'this order is not a manual UPI order' });
+  if (order.status === 'paid' || order.status === 'delivered') {
+    return res.json({ status: order.status, downloadUrl: order.download_token ? `/download/${order.download_token}` : null });
+  }
+  if (order.status !== 'pending') {
+    // already awaiting_review — don't let a second submit silently overwrite it
+    return res.status(409).json({ status: order.status, error: 'this order already has a submission awaiting review' });
+  }
+
+  const utr = String(req.body?.utr || '').trim();
+  if (!utr) return res.status(400).json({ error: 'UTR / transaction reference number is required' });
+  if (!req.file) return res.status(400).json({ error: 'a payment screenshot is required' });
+  if (db.utrAlreadyUsed(utr)) {
+    fs.unlink(req.file.path, () => {});
+    return res.status(409).json({ error: 'this UTR has already been submitted on another order' });
+  }
+
+  const changed = db.submitUpiProof(order.id, { utr, screenshotPath: req.file.filename });
+  if (!changed) {
+    fs.unlink(req.file.path, () => {});
+    return res.status(409).json({ error: 'this order is no longer waiting for a submission' });
+  }
+  res.json({ status: 'awaiting_review', note: 'Submitted — the store owner reviews payment proofs and approves them, usually quickly. You\'ll get an email, or you can check back here.' });
 });
 
 // -------------------------------------------------------- razorpay webhook
@@ -227,27 +306,59 @@ app.get('/download/:token', (req, res) => {
 // webhook was missed for any reason — nothing ever has to be re-built by
 // hand, just confirmed.
 function requireAdmin(req, res, next) {
-  if (!process.env.ADMIN_API_KEY || req.header('X-Admin-Key') !== process.env.ADMIN_API_KEY) {
-    return res.status(401).json({ error: 'unauthorized' });
-  }
+  // Accepts the key either as a header (used by admin.html's fetch calls) or
+  // a ?key= query param (needed for the <img src> screenshot route, which
+  // can't send custom headers). Constant-time compare to avoid timing leaks.
+  const key = req.header('X-Admin-Key') || req.query.key || '';
+  const expected = process.env.ADMIN_API_KEY || '';
+  const ok = expected && key.length === expected.length &&
+    crypto.timingSafeEqual(Buffer.from(key), Buffer.from(expected));
+  if (!ok) return res.status(401).json({ error: 'unauthorized' });
   next();
 }
 
 app.get('/api/admin/orders', requireAdmin, (_req, res) => {
-  const rows = db.db.prepare('SELECT id, email, book_ids, method, status, amount_inr, usdt_amount, tx_hash, created_at, paid_at FROM orders ORDER BY created_at DESC LIMIT 200').all();
+  const rows = db.db.prepare('SELECT id, email, book_ids, method, status, amount_inr, usdt_amount, tx_hash, utr, screenshot_path, reject_reason, created_at, paid_at FROM orders ORDER BY created_at DESC LIMIT 200').all();
   res.json({ orders: rows });
 });
 
 app.post('/api/admin/orders/:id/confirm', requireAdmin, async (req, res) => {
   const order = db.getOrder(req.params.id);
   if (!order) return res.status(404).json({ error: 'order not found' });
-  if (order.status !== 'pending') return res.json({ status: order.status });
+  if (!['pending', 'awaiting_review'].includes(order.status)) return res.json({ status: order.status });
   const downloadToken = newDownloadToken();
   db.markPaid(order.id, { downloadToken });
   const fresh = db.getOrder(order.id);
   await mailer.sendOrderDelivery(fresh);
   res.json({ status: fresh.status });
 });
+
+// Screenshot didn't check out (wrong amount, doesn't match, looks edited).
+// Sends the order back to 'pending' so the customer can submit again, and
+// frees the UTR in case it was a genuine typo.
+app.post('/api/admin/orders/:id/reject', requireAdmin, (req, res) => {
+  const order = db.getOrder(req.params.id);
+  if (!order) return res.status(404).json({ error: 'order not found' });
+  const changed = db.rejectManualUpi(order.id, req.body?.reason || null);
+  if (!changed) return res.status(409).json({ error: 'this order is not currently awaiting review' });
+  res.json({ status: 'pending' });
+});
+
+// Serves an uploaded payment screenshot for the admin dashboard to display.
+// Key-in-query (not just header) because a plain <img src> can't set
+// custom headers — same timingSafeEqual check as every other admin route.
+app.get('/api/admin/screenshot/:orderId', requireAdmin, (req, res) => {
+  const order = db.getOrder(req.params.orderId);
+  if (!order || !order.screenshot_path) return res.status(404).send('not found');
+  const filePath = path.join(SCREENSHOT_DIR, order.screenshot_path);
+  if (!fs.existsSync(filePath)) return res.status(404).send('not found');
+  res.sendFile(filePath);
+});
+
+// The dashboard page itself (public/admin.html + admin.js). Protected by
+// nothing at the HTTP level (it's just static HTML/JS) — every data call it
+// makes requires the admin key, entered once and kept in that browser.
+app.use(express.static(path.join(__dirname, '..', 'public')));
 
 app.get('/', (_req, res) => {
   res.type('html').send(`<!doctype html><meta charset="utf-8">
@@ -263,7 +374,9 @@ app.get('/healthz', (_req, res) => res.json({
   ok: true,
   razorpayConfigured: razorpay.isConfigured(),
   cryptoConfigured: tron.isConfigured(),
+  upiManualConfigured: upi.isConfigured(),
   mailerConfigured: mailer.isConfigured(),
+  adminConfigured: !!process.env.ADMIN_API_KEY,
 }));
 
 if (tron.isConfigured() && !tron.isValidAddressFormat(process.env.TRON_USDT_ADDRESS)) {

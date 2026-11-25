@@ -249,6 +249,16 @@ app.post('/api/admin/orders/:id/confirm', requireAdmin, async (req, res) => {
   res.json({ status: fresh.status });
 });
 
+app.get('/', (_req, res) => {
+  res.type('html').send(`<!doctype html><meta charset="utf-8">
+    <title>HackLearn Press — Payments API</title>
+    <body style="font-family:system-ui,sans-serif;max-width:480px;margin:60px auto;line-height:1.6">
+    <h2>HackLearn Press — payments backend</h2>
+    <p>This is an API server, not a website — it's called by the store's checkout page, not meant to be browsed directly.</p>
+    <p>If you're checking it's alive: <a href="/healthz">/healthz</a></p>
+    </body>`);
+});
+
 app.get('/healthz', (_req, res) => res.json({
   ok: true,
   razorpayConfigured: razorpay.isConfigured(),

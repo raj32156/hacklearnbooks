@@ -63,6 +63,7 @@ footer{color:var(--muted);font-size:13px;margin-top:30px;text-align:center}
   <div class="methods">
     <button type="button" id="mUpi" class="active">UPI / Card / Netbanking</button>
     <button type="button" id="mCrypto">Crypto (USDT · TRC20)</button>
+    <button type="button" id="mUpiManual">UPI — Pay Directly</button>
   </div>
 
   <button class="btn" id="payBtn">Continue</button>
@@ -85,6 +86,23 @@ footer{color:var(--muted);font-size:13px;margin-top:30px;text-align:center}
   <input type="text" id="txHash" placeholder="64-character transaction hash">
   <button class="btn" id="submitTx">I've sent it — verify payment</button>
   <div id="cryptoNotice"></div>
+</div>
+
+<!-- Manual UPI flow: real UPI ID + QR, customer uploads screenshot + UTR, store owner approves -->
+<div class="panel" id="upiManualPanel" hidden>
+  <p>Pay <b id="umAmt">—</b> to this UPI ID using any UPI app, then upload your payment screenshot below.</p>
+  <div class="addr" id="umVpa">—</div>
+  <div id="umQr"></div>
+  <p class="muted" style="font-size:13px">A real person checks each payment and unlocks your books — usually quick, but please allow some time (not instant like a card payment).</p>
+  <div id="umForm">
+    <label for="umUtr">UTR / reference number (from your payment app)</label>
+    <input type="text" id="umUtr" placeholder="e.g. 123456789012">
+    <label for="umShot">Payment screenshot</label>
+    <input type="file" id="umShot" accept="image/*">
+    <button class="btn" id="umSubmit">Submit for review</button>
+  </div>
+  <div id="umNotice"></div>
+  <div id="umWaiting" class="notice info" hidden><span class="spin"></span>Submitted — waiting for the store owner to review and approve&hellip;</div>
 </div>
 
 <div class="panel" id="donePanel" hidden>
@@ -188,11 +206,19 @@ document.getElementById('mUpi').onclick = () => {
   method = 'razorpay';
   document.getElementById('mUpi').classList.add('active');
   document.getElementById('mCrypto').classList.remove('active');
+  document.getElementById('mUpiManual').classList.remove('active');
 };
 document.getElementById('mCrypto').onclick = () => {
   method = 'crypto';
   document.getElementById('mCrypto').classList.add('active');
   document.getElementById('mUpi').classList.remove('active');
+  document.getElementById('mUpiManual').classList.remove('active');
+};
+document.getElementById('mUpiManual').onclick = () => {
+  method = 'upi_manual';
+  document.getElementById('mUpiManual').classList.add('active');
+  document.getElementById('mUpi').classList.remove('active');
+  document.getElementById('mCrypto').classList.remove('active');
 };
 
 document.getElementById('payBtn').onclick = async () => {
@@ -215,7 +241,8 @@ document.getElementById('payBtn').onclick = async () => {
     const order = await api('/api/orders', { method: 'POST', body: JSON.stringify({ bookIds, email, method }) });
     document.getElementById('emailPanel').hidden = true;
     if (method === 'razorpay') startRazorpay(order);
-    else startCrypto(order);
+    else if (method === 'crypto') startCrypto(order);
+    else startUpiManual(order);
   } catch (err) {
     setNotice(document.getElementById('globalNotice'), 'bad', err.message || 'Something went wrong — please try again.');
     document.getElementById('fallbackPanel').hidden = false;
@@ -229,6 +256,7 @@ function showDone(downloadUrl) {
   clearInterval(pollTimer);
   document.getElementById('upiPanel').hidden = true;
   document.getElementById('cryptoPanel').hidden = true;
+  document.getElementById('upiManualPanel').hidden = true;
   document.getElementById('donePanel').hidden = false;
   document.getElementById('downloadNow').href = API_BASE + downloadUrl;
 }
@@ -285,6 +313,40 @@ function startCrypto(order) {
       setNotice(document.getElementById('cryptoNotice'), 'bad', err.message || 'Could not verify — try again in a minute.');
     } finally {
       btn.disabled = false; btn.textContent = "I've sent it — verify payment";
+    }
+  };
+}
+
+function startUpiManual(order) {
+  document.getElementById('upiManualPanel').hidden = false;
+  document.getElementById('umAmt').textContent = inr(order.amountInr);
+  document.getElementById('umVpa').textContent = order.upiId + (order.payeeName ? ' (' + order.payeeName + ')' : '');
+  try {
+    new QRCode(document.getElementById('umQr'), { text: order.upiLink, width: 180, height: 180 });
+  } catch (_) { /* QR lib failed to load — the VPA text above still works for manual entry */ }
+
+  document.getElementById('umSubmit').onclick = async () => {
+    const utr = document.getElementById('umUtr').value.trim();
+    const file = document.getElementById('umShot').files[0];
+    const btn = document.getElementById('umSubmit');
+    setNotice(document.getElementById('umNotice'), '', '');
+    if (!utr) return setNotice(document.getElementById('umNotice'), 'bad', 'Enter the UTR / reference number from your payment app.');
+    if (!file) return setNotice(document.getElementById('umNotice'), 'bad', 'Attach a screenshot of the payment.');
+    btn.disabled = true; btn.textContent = 'Uploading…';
+    try {
+      const fd = new FormData();
+      fd.append('utr', utr);
+      fd.append('screenshot', file);
+      const res = await fetch(API_BASE + `/api/orders/${order.orderId}/upi-submit`, { method: 'POST', body: fd });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Could not submit — try again.');
+      document.getElementById('umForm').hidden = true;
+      document.getElementById('umWaiting').hidden = false;
+      pollOrder(order.orderId);
+    } catch (err) {
+      setNotice(document.getElementById('umNotice'), 'bad', err.message || 'Something went wrong — please try again.');
+    } finally {
+      btn.disabled = false; btn.textContent = 'Submit for review';
     }
   };
 }

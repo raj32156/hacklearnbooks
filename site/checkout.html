@@ -33,8 +33,8 @@ input[type=email],input[type=text]{width:100%;padding:11px 12px;border-radius:10
 .notice.info{background:var(--bg2);color:var(--muted)}
 .notice.bad{background:color-mix(in srgb, var(--bad) 14%, transparent);color:var(--bad)}
 .notice.good{background:color-mix(in srgb, var(--good) 14%, transparent);color:var(--good)}
-#qr{display:flex;justify-content:center;margin:14px 0}
-#qr canvas,#qr img{border-radius:10px;background:#fff;padding:10px}
+#qr,#umQr{display:flex;justify-content:center;margin:14px 0}
+#qr canvas,#qr img,#umQr img{border-radius:10px;background:#fff;padding:10px;width:220px;max-width:100%}
 .addr{font-family:ui-monospace,monospace;font-size:13px;word-break:break-all;background:var(--bg2);padding:10px 12px;border-radius:8px;margin:8px 0;user-select:all}
 .spin{display:inline-block;width:14px;height:14px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:sp .7s linear infinite;margin-right:8px;vertical-align:-2px}
 @keyframes sp{to{transform:rotate(360deg)}}
@@ -91,8 +91,12 @@ footer{color:var(--muted);font-size:13px;margin-top:30px;text-align:center}
 <!-- Manual UPI flow: real UPI ID + QR, customer uploads screenshot + UTR, store owner approves -->
 <div class="panel" id="upiManualPanel" hidden>
   <p>Pay <b id="umAmt">—</b> to this UPI ID using any UPI app, then upload your payment screenshot below.</p>
-  <div class="addr" id="umVpa">—</div>
-  <div id="umQr"></div>
+  <div id="umQr"><img src="assets/upi-qr.jpg" alt="UPI QR code"></div>
+  <div class="addr" id="umVpa" style="display:flex;align-items:center;justify-content:space-between;gap:10px">
+    <span id="umVpaText">—</span>
+    <button type="button" id="umCopyVpa" class="btn-ghost" style="width:auto;margin:0;padding:6px 12px;border-radius:8px;font-size:12.5px;white-space:nowrap">Copy</button>
+  </div>
+  <p class="muted" style="font-size:13px">Scan the QR above with any UPI app (GPay, PhonePe, Paytm, etc.), or pay directly to the UPI ID shown. This QR doesn't prefill the amount — enter <b id="umAmt2">—</b> manually when paying.</p>
   <p class="muted" style="font-size:13px">A real person checks each payment and unlocks your books — please allow up to 20-30 minutes for verification (not instant like a card payment).</p>
   <div id="umForm">
     <label for="umUtr">UTR / reference number (from your payment app)</label>
@@ -153,6 +157,20 @@ let pollTimer = null;
 
 function setNotice(el, kind, msg) {
   el.innerHTML = msg ? `<div class="notice ${kind}">${msg}</div>` : '';
+}
+
+function fallbackCopy(text, onDone) {
+  // Used when navigator.clipboard isn't available (some older/in-app browsers).
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.position = 'fixed';
+  ta.style.opacity = '0';
+  document.body.appendChild(ta);
+  ta.focus();
+  ta.select();
+  try { document.execCommand('copy'); } catch (_) { /* nothing more we can do — the UPI ID is shown as selectable text anyway */ }
+  document.body.removeChild(ta);
+  onDone();
 }
 
 async function api(path, opts) {
@@ -320,10 +338,18 @@ function startCrypto(order) {
 function startUpiManual(order) {
   document.getElementById('upiManualPanel').hidden = false;
   document.getElementById('umAmt').textContent = inr(order.amountInr);
-  document.getElementById('umVpa').textContent = order.upiId + (order.payeeName ? ' (' + order.payeeName + ')' : '');
-  try {
-    new QRCode(document.getElementById('umQr'), { text: order.upiLink, width: 180, height: 180 });
-  } catch (_) { /* QR lib failed to load — the VPA text above still works for manual entry */ }
+  document.getElementById('umAmt2').textContent = inr(order.amountInr);
+  document.getElementById('umVpaText').textContent = order.upiId + (order.payeeName ? ' (' + order.payeeName + ')' : '');
+  document.getElementById('umCopyVpa').onclick = () => {
+    const btn = document.getElementById('umCopyVpa');
+    const text = order.upiId;
+    const done = () => { const prev = btn.textContent; btn.textContent = 'Copied!'; setTimeout(() => { btn.textContent = prev; }, 1500); };
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(text).then(done).catch(() => fallbackCopy(text, done));
+    } else {
+      fallbackCopy(text, done);
+    }
+  };
 
   document.getElementById('umSubmit').onclick = async () => {
     const utr = document.getElementById('umUtr').value.trim();

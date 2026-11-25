@@ -30,20 +30,22 @@ const { newDownloadToken, isExpired } = require('./tokens');
 const app = express();
 const PORT = process.env.PORT || 8787;
 
-// Default to the storefront's own real origins instead of '*'. This is a
-// defense-in-depth measure — this API isn't cookie-authenticated, so CORS
-// alone was never the thing standing between an attacker and the admin key,
-// but a wildcard still lets any arbitrary website script a browser into
-// calling these endpoints directly, which is just unnecessary exposure.
-// Override with a comma-separated FRONTEND_ORIGIN env var if the storefront
-// ever moves to a different domain.
-const DEFAULT_ALLOWED_ORIGINS = [
-  'https://hacklearnraj.in',
-  'https://www.hacklearnraj.in',
-];
+// CORS allowlist. This API isn't cookie-authenticated (auth is a bearer key
+// in a header/query param), so a wildcard here was never the thing standing
+// between an attacker and the admin key — tightening it is good hygiene,
+// not a critical fix, and it must never be the thing that silently breaks
+// checkout in production. So: tighten ONLY when FRONTEND_ORIGIN is actually
+// set (set it on Render to your real storefront domain(s), comma-separated,
+// e.g. "https://hacklearnraj.in,https://www.hacklearnraj.in"). Until then,
+// fall back to allowing any origin, same as before the security pass, with
+// a startup warning so it isn't silently forgotten.
 const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN
   ? process.env.FRONTEND_ORIGIN.split(',').map(s => s.trim()).filter(Boolean)
-  : DEFAULT_ALLOWED_ORIGINS;
+  : null;
+if (!FRONTEND_ORIGIN) {
+  console.warn('[cors] FRONTEND_ORIGIN not set — allowing requests from any origin. ' +
+    'Set FRONTEND_ORIGIN on Render to your real storefront URL(s) to lock this down.');
+}
 
 app.use(helmet());
 app.set('trust proxy', 1); // Render sits behind a proxy; needed for rate-limit to key on the real client IP
@@ -51,7 +53,7 @@ app.use(cors({
   origin(origin, cb) {
     // No Origin header (curl, server-to-server, the Razorpay webhook) is
     // always allowed through — CORS only ever governs browser requests.
-    if (!origin || FRONTEND_ORIGIN.includes(origin)) return cb(null, true);
+    if (!FRONTEND_ORIGIN || !origin || FRONTEND_ORIGIN.includes(origin)) return cb(null, true);
     cb(new Error('not allowed by CORS'));
   },
 }));

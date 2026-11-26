@@ -137,9 +137,22 @@ ul.items li .t{flex:1}ul.items li s{color:var(--muted);font-size:12.5px;margin-r
 <script src="assets/qrcode.min.js"></script>
 <script>
 // ---- Set this once the payments backend is deployed (see payments/README.md) ----
-// Same-origin when this page is served by the backend itself (Render or
-// localhost); the absolute Render URL when the page is hosted elsewhere.
-const API_BASE = /onrender\.com$|^localhost$|^127\.0\.0\.1$/.test(location.hostname)
+// Same-origin ONLY on hosts that actually run the backend (the backend's own
+// Render hostname, the custom domain once it's pointed at that same backend,
+// or local dev) — everywhere else, call the absolute backend URL. A bare
+// "ends with .onrender.com" check is wrong here: this repo has TWO separate
+// Render services (a static site with no API at all, and this backend), and
+// both hostnames end in .onrender.com. Matching both made every API call
+// from the static site silently hit nothing and fail (the exact cause of
+// the "NaN"/"undefined" checkout bug) — it just never threw, since the
+// static site's own 404 still came back as a response, not a network error.
+const SAME_ORIGIN_HOSTS = new Set([
+  'hacklearnbooks.onrender.com',
+  'hacklearnraj.com', 'www.hacklearnraj.com',
+  'hacklearnraj.in', 'www.hacklearnraj.in',
+  'localhost', '127.0.0.1',
+]);
+const API_BASE = SAME_ORIGIN_HOSTS.has(location.hostname)
   ? location.origin
   : "https://hacklearnbooks.onrender.com";
 const WHATSAPP_NUMBER = "919341127976";

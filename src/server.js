@@ -39,12 +39,18 @@ const PORT = process.env.PORT || 8787;
 // e.g. "https://hacklearnraj.in,https://www.hacklearnraj.in"). Until then,
 // fall back to allowing any origin, same as before the security pass, with
 // a startup warning so it isn't silently forgotten.
-const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN
-  ? process.env.FRONTEND_ORIGIN.split(',').map(s => s.trim()).filter(Boolean)
-  : null;
+// "*" is treated the same as leaving the variable unset — i.e. wide open —
+// rather than as one specific literal allowed-origin string (which would
+// never match a real browser Origin header and silently block everything).
+// Older setup docs told you to set FRONTEND_ORIGIN=* for testing, so this
+// has to be handled explicitly rather than assumed away.
+const rawFrontendOrigin = (process.env.FRONTEND_ORIGIN || '').trim();
+const FRONTEND_ORIGIN = (!rawFrontendOrigin || rawFrontendOrigin === '*')
+  ? null
+  : rawFrontendOrigin.split(',').map(s => s.trim()).filter(Boolean);
 if (!FRONTEND_ORIGIN) {
-  console.warn('[cors] FRONTEND_ORIGIN not set — allowing requests from any origin. ' +
-    'Set FRONTEND_ORIGIN on Render to your real storefront URL(s) to lock this down.');
+  console.warn('[cors] FRONTEND_ORIGIN not set (or set to "*") — allowing requests from any origin. ' +
+    'Set it on Render to your real storefront URL(s), comma-separated, to lock this down.');
 }
 
 // The storefront (site/) is served from this same server, so the CSP has to

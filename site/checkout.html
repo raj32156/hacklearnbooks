@@ -137,19 +137,23 @@ ul.items li .t{flex:1}ul.items li s{color:var(--muted);font-size:12.5px;margin-r
 <script src="assets/qrcode.min.js"></script>
 <script>
 // ---- Set this once the payments backend is deployed (see payments/README.md) ----
-// Same-origin ONLY on hosts that actually run the backend (the backend's own
-// Render hostname, the custom domain once it's pointed at that same backend,
-// or local dev) — everywhere else, call the absolute backend URL. A bare
-// "ends with .onrender.com" check is wrong here: this repo has TWO separate
-// Render services (a static site with no API at all, and this backend), and
-// both hostnames end in .onrender.com. Matching both made every API call
-// from the static site silently hit nothing and fail (the exact cause of
-// the "NaN"/"undefined" checkout bug) — it just never threw, since the
-// static site's own 404 still came back as a response, not a network error.
+// Same-origin ONLY on hosts that actually run the backend — everywhere else,
+// call the absolute backend URL. A bare "ends with .onrender.com" check is
+// wrong here: this repo deploys to TWO separate Render services (a static
+// site with no API at all, and this backend), and both hostnames end in
+// .onrender.com. Matching both made every API call from the static site
+// silently hit nothing and fail (the exact cause of the "NaN"/"undefined"
+// checkout bug) — it never threw, since the static site's own 404 still
+// came back as a response, not a network error.
+//
+// hacklearnraj.com / .in are deliberately NOT in this list: that custom
+// domain points at the static site (no backend), not at this server, so it
+// must also fall through to the absolute backend URL below. If the custom
+// domain is ever repointed to THIS backend service instead (recommended —
+// it serves the whole storefront itself and sidesteps cross-origin issues
+// entirely), add it back here then.
 const SAME_ORIGIN_HOSTS = new Set([
   'hacklearnbooks.onrender.com',
-  'hacklearnraj.com', 'www.hacklearnraj.com',
-  'hacklearnraj.in', 'www.hacklearnraj.in',
   'localhost', '127.0.0.1',
 ]);
 const API_BASE = SAME_ORIGIN_HOSTS.has(location.hostname)

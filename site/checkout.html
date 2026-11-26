@@ -118,7 +118,11 @@ footer{color:var(--muted);font-size:13px;margin-top:30px;text-align:center}
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 <script>
 // ---- Set this once the payments backend is deployed (see payments/README.md) ----
-const API_BASE = "https://hacklearnbooks.onrender.com";
+// Same-origin when this page is served by the backend itself (Render or
+// localhost); the absolute Render URL when the page is hosted elsewhere.
+const API_BASE = /onrender\.com$|^localhost$|^127\.0\.0\.1$/.test(location.hostname)
+  ? location.origin
+  : "https://hacklearnbooks.onrender.com";
 const WHATSAPP_NUMBER = "919341127976";
 
 // Local copy of the catalog + discount tiers, so this page can show the real

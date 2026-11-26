@@ -47,7 +47,26 @@ if (!FRONTEND_ORIGIN) {
     'Set FRONTEND_ORIGIN on Render to your real storefront URL(s) to lock this down.');
 }
 
-app.use(helmet());
+// The storefront (site/) is served from this same server, so the CSP has to
+// allow what those pages actually use: their inline <script> blocks, Google
+// Fonts, and the QR-code library from cdnjs. Helmet's default CSP blocks all
+// of that, which is why the store would render blank/broken if served as-is.
+app.use(helmet({
+  contentSecurityPolicy: {
+    useDefaults: true,
+    directives: {
+      'default-src': ["'self'"],
+      'script-src': ["'self'", "'unsafe-inline'", 'https://cdnjs.cloudflare.com'],
+      'style-src': ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
+      'font-src': ["'self'", 'https://fonts.gstatic.com', 'data:'],
+      'img-src': ["'self'", 'data:', 'blob:'],
+      'connect-src': ["'self'", 'https://hacklearnbooks.onrender.com'],
+      'form-action': ["'self'"],
+      'frame-ancestors': ["'self'"],
+      'upgrade-insecure-requests': null,
+    },
+  },
+}));
 app.set('trust proxy', 1); // Render sits behind a proxy; needed for rate-limit to key on the real client IP
 app.use(cors({
   origin(origin, cb) {
@@ -546,15 +565,13 @@ app.get('/api/admin/backup', adminLimiter, requireAdmin, (req, res) => {
 // makes requires the admin key, entered once and kept in that browser.
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
-app.get('/', (_req, res) => {
-  res.type('html').send(`<!doctype html><meta charset="utf-8">
-    <title>HackLearn Press — Payments API</title>
-    <body style="font-family:system-ui,sans-serif;max-width:480px;margin:60px auto;line-height:1.6">
-    <h2>HackLearn Press — payments backend</h2>
-    <p>This is an API server, not a website — it's called by the store's checkout page, not meant to be browsed directly.</p>
-    <p>If you're checking it's alive: <a href="/healthz">/healthz</a></p>
-    </body>`);
-});
+// The storefront itself: home page, book previews (prev/), covers, checkout
+// and policy pages. Served from this same server so the whole store is live
+// at the Render URL — previously only the API was deployed, so visiting the
+// site showed a bare "this is an API server" page and nothing else. The paid
+// PDFs in pdfs/ are deliberately NOT in here: they're only ever served through
+// a paid order's /download/:token link.
+app.use(express.static(path.join(__dirname, '..', 'site'), { extensions: ['html'], maxAge: '1h' }));
 
 app.get('/healthz', (_req, res) => res.json({
   ok: true,

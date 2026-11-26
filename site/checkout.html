@@ -26,7 +26,7 @@ input[type=email],input[type=text]{width:100%;padding:11px 12px;border-radius:10
 .methods{display:flex;gap:10px;margin-top:14px;flex-wrap:wrap}
 .methods button{flex:1 1 180px;padding:14px;border-radius:12px;border:1px solid var(--line);background:var(--bg2);color:var(--fg);font-weight:700;cursor:pointer;font-size:15px}
 .methods button.active{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent) inset}
-.btn{display:inline-block;padding:13px 20px;border-radius:10px;border:0;background:var(--accent);color:#fff;font-weight:700;cursor:pointer;font-size:15.5px;width:100%;margin-top:14px}
+.btn{display:inline-block;text-decoration:none;text-align:center;padding:13px 20px;border-radius:10px;border:0;background:var(--accent);color:#fff;font-weight:700;cursor:pointer;font-size:15.5px;width:100%;margin-top:14px}
 .btn:disabled{opacity:.55;cursor:not-allowed}
 .btn-ghost{background:transparent;border:1px solid var(--line);color:var(--fg)}
 .notice{font-size:13.5px;padding:10px 12px;border-radius:10px;margin-top:12px}
@@ -40,29 +40,41 @@ input[type=email],input[type=text]{width:100%;padding:11px 12px;border-radius:10
 @keyframes sp{to{transform:rotate(360deg)}}
 footer{color:var(--muted);font-size:13px;margin-top:30px;text-align:center}
 [hidden]{display:none!important}
+header{justify-content:space-between}header .back{font:500 14px "IBM Plex Sans",sans-serif;color:var(--muted)}
+.trustbar{display:flex;flex-wrap:wrap;gap:6px 16px;margin:10px 0 0;padding:0;list-style:none;font-size:13px;color:var(--muted)}
+.trustbar li::before{content:"\2713";color:var(--good);font-weight:700;margin-right:6px}
+ul.items li{align-items:center;gap:12px;padding:8px 0}ul.items li img{width:40px;aspect-ratio:520/736;object-fit:cover;border-radius:4px;flex:none;background:var(--bg2)}
+ul.items li .t{flex:1}ul.items li s{color:var(--muted);font-size:12.5px;margin-right:6px}
+.methods button{display:flex;flex-direction:column;align-items:center;gap:2px}.methods button small{font-weight:500;font-size:12.5px;color:var(--muted)}
+.upibtn{display:none}@media (max-width:760px),(pointer:coarse){.upibtn{display:block;text-align:center;text-decoration:none}}
+.alt{font-size:13px;color:var(--muted);text-align:center}.alt summary{cursor:pointer}
+.save-note{font-size:13px;color:var(--good);text-align:right}
+
 </style>
 </head>
 <body>
 <div class="w">
-<header><a href="index.html">HackLearn Press</a></header>
+<header><a href="index.html">HackLearn Press</a><a class="back" href="index.html#books">&larr; Back to store</a></header>
 <h1>Checkout</h1>
-<p class="muted" id="subtitle">Review your order, then pay by UPI or crypto.</p>
+<p class="muted" id="subtitle">Review your order, then pay by UPI or USDT.</p>
+<ul class="trustbar"><li>Free 20-page previews</li><li>Download unlocks right here</li><li>Watermarked PDF, valid 30 days</li></ul>
 
 <div class="panel">
   <ul class="items" id="items"></ul>
   <div class="row"><span class="muted">Subtotal</span><span id="sum">—</span></div>
   <div class="row" id="discRow" hidden><span class="muted" id="discLabel">Discount</span><span id="disc">—</span></div>
   <div class="row total"><span>Total</span><span id="total">—</span></div>
+  <div class="save-note" id="saveNote"></div>
 </div>
 
 <div class="panel" id="emailPanel">
-  <label for="email">Email (your books get sent here)</label>
+  <label for="email">Email (for your receipt and order reference)</label>
   <input type="email" id="email" placeholder="you@example.com" autocomplete="email">
 
   <label>Pay with</label>
   <div class="methods">
-    <button type="button" id="mUpiManual" class="active">UPI — Pay Directly</button>
-    <button type="button" id="mCrypto">Crypto (USDT · TRC20)</button>
+    <button type="button" id="mUpiManual" class="active">UPI<small>GPay, PhonePe, Paytm &middot; ~30 min check</small></button>
+    <button type="button" id="mCrypto">USDT &middot; TRC20<small>Verified automatically</small></button>
   </div>
 
   <button class="btn" id="payBtn">Continue</button>
@@ -83,13 +95,15 @@ footer{color:var(--muted);font-size:13px;margin-top:30px;text-align:center}
 
 <!-- Manual UPI flow: real UPI ID + QR, customer uploads screenshot + UTR, store owner approves -->
 <div class="panel" id="upiManualPanel" hidden>
-  <p>Pay <b id="umAmt">—</b> to this UPI ID using any UPI app, then upload your payment screenshot below.</p>
-  <div id="umQr"><img src="assets/upi-qr.jpg" alt="UPI QR code"></div>
+  <p>Pay <b id="umAmt">—</b> with any UPI app, then upload your payment screenshot below.</p>
+  <div id="umQr"></div>
+  <a class="btn upibtn" id="umApp" href="#">Open UPI app to pay</a>
   <div class="addr" id="umVpa" style="display:flex;align-items:center;justify-content:space-between;gap:10px">
     <span id="umVpaText">—</span>
     <button type="button" id="umCopyVpa" class="btn-ghost" style="width:auto;margin:0;padding:6px 12px;border-radius:8px;font-size:12.5px;white-space:nowrap">Copy</button>
   </div>
-  <p class="muted" style="font-size:13px">Scan the QR above with any UPI app (GPay, PhonePe, Paytm, etc.), or pay directly to the UPI ID shown. This QR doesn't prefill the amount — enter <b id="umAmt2">—</b> manually when paying.</p>
+  <p class="muted" style="font-size:13px">Scan the QR with GPay, PhonePe, Paytm or any UPI app &mdash; the amount <b id="umAmt2">—</b> is filled in for you. Or pay that amount to the UPI ID above.</p>
+  <details class="alt"><summary>QR not scanning? Use our store QR</summary><p>Enter the amount manually when you pay.</p><div style="display:flex;justify-content:center"><img src="assets/upi-qr.jpg" alt="Store UPI QR code" style="width:200px;border-radius:10px;background:#fff;padding:8px"></div></details>
   <p class="muted" style="font-size:13px">A real person checks each payment and unlocks your books — please allow up to 20-30 minutes for verification (not instant like a card payment).</p>
   <div id="umForm">
     <label for="umUtr">UTR / reference number (from your payment app)</label>
@@ -99,12 +113,17 @@ footer{color:var(--muted);font-size:13px;margin-top:30px;text-align:center}
     <button class="btn" id="umSubmit">Submit for review</button>
   </div>
   <div id="umNotice"></div>
-  <div id="umWaiting" class="notice info" hidden><span class="spin"></span>Submitted — your payment will be verified within 20-30 minutes&hellip;</div>
+  <div id="umWaiting" class="notice info" hidden><span class="spin"></span>Submitted &mdash; your payment is being verified (usually 20&ndash;30 minutes, Mon&ndash;Sat 10:00&ndash;19:00 IST). <b>Keep or bookmark this page</b>: your download appears here the moment it is approved.</div>
+</div>
+
+<div class="panel" id="resumePanel" hidden>
+  <div class="notice info"><span class="spin"></span><span id="resumeText">Checking your order&hellip;</span></div>
 </div>
 
 <div class="panel" id="donePanel" hidden>
-  <div class="notice good">Payment confirmed! Your books are on their way to your email.</div>
-  <a class="btn" id="downloadNow" href="#" target="_blank" rel="noopener">Download now</a>
+  <div class="notice good"><b>Payment confirmed &mdash; thank you!</b> Download your books below. The link works for 30 days, so bookmark this page.</div>
+  <a class="btn" id="downloadNow" href="#" target="_blank" rel="noopener">Download my books</a>
+  <p class="muted" style="font-size:13px;margin:12px 0 0">Trouble downloading? WhatsApp <a href="https://wa.me/919341127976">+91 93411 27976</a> with your order reference <b id="doneRef"></b>.</p>
 </div>
 
 <div class="panel" id="fallbackPanel" hidden>
@@ -112,10 +131,10 @@ footer{color:var(--muted);font-size:13px;margin-top:30px;text-align:center}
   <a class="btn" id="waFallback" href="#" target="_blank" rel="noopener">Order on WhatsApp</a>
 </div>
 
-<footer>Secured checkout &middot; HackLearn Press</footer>
+<footer>Secure checkout &middot; HackLearn Press &middot; <a href="refund.html" style="color:inherit">Refund policy</a> &middot; <a href="https://wa.me/919341127976" style="color:inherit">Help on WhatsApp</a></footer>
 </div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="assets/qrcode.min.js"></script>
 <script>
 // ---- Set this once the payments backend is deployed (see payments/README.md) ----
 // Same-origin when this page is served by the backend itself (Render or
@@ -129,7 +148,7 @@ const WHATSAPP_NUMBER = "919341127976";
 // order review (titles, prices, discount) even before a backend is deployed.
 // Mirrors payments/src/books.json and payments/src/catalog.js exactly —
 // if you ever change a book's price there, update it here too.
-const CATALOG = [{"id":"linux-for-hackers","t":"Linux for Hackers","p":349,"mrp":699},{"id":"network-hacking-20-days","t":"Network Hacking in 20 Days","p":449,"mrp":899},{"id":"web-app-pentesting","t":"Web Application Pentesting","p":599,"mrp":1199},{"id":"python-for-hackers","t":"Python for Hackers","p":449,"mrp":899},{"id":"soc-analyst-field-guide","t":"SOC Analyst Field Guide","p":549,"mrp":1099},{"id":"applied-cryptography","t":"Applied Cryptography for Security Pros","p":499,"mrp":999},{"id":"osint-investigations","t":"OSINT Investigations","p":449,"mrp":899},{"id":"malware-analysis","t":"Malware Analysis & Reverse Engineering","p":799,"mrp":1499},{"id":"cloud-security","t":"Cloud Security & Pentesting","p":699,"mrp":1299},{"id":"breaking-the-model","t":"Breaking the Model","p":699,"mrp":1299},{"id":"signals-in-the-dark","t":"Signals in the Dark","p":799,"mrp":1499},{"id":"red-team-operations","t":"Red Team Operations","p":899,"mrp":1699},{"id":"android-app-pentesting","t":"Android App Pentesting","p":599,"mrp":1199},{"id":"think-like-an-attacker","t":"Think Like an Attacker","p":649,"mrp":1299},{"id":"active-directory","t":"Active Directory Attacks & Defense","p":799,"mrp":1499},{"id":"the-200-tool-arsenal","t":"The 200-Tool Arsenal","p":699,"mrp":1399},{"id":"bug-bounty-playbook","t":"Bug Bounty Hunter's Playbook","p":599,"mrp":1199},{"id":"wireless-iot-hacking","t":"Wireless & IoT Hacking","p":599,"mrp":1199}];
+const CATALOG = [{"id":"linux-for-hackers","t":"Linux for Hackers","p":199,"mrp":349},{"id":"network-hacking-20-days","t":"Network Hacking in 20 Days","p":249,"mrp":449},{"id":"web-app-pentesting","t":"Web Application Pentesting","p":299,"mrp":599},{"id":"python-for-hackers","t":"Python for Hackers","p":199,"mrp":449},{"id":"soc-analyst-field-guide","t":"SOC Analyst Field Guide","p":249,"mrp":549},{"id":"applied-cryptography","t":"Applied Cryptography for Security Pros","p":199,"mrp":499},{"id":"osint-investigations","t":"OSINT Investigations","p":199,"mrp":449},{"id":"malware-analysis","t":"Malware Analysis & Reverse Engineering","p":299,"mrp":799},{"id":"cloud-security","t":"Cloud Security & Pentesting","p":299,"mrp":699},{"id":"breaking-the-model","t":"Breaking the Model","p":299,"mrp":699},{"id":"signals-in-the-dark","t":"Signals in the Dark","p":299,"mrp":799},{"id":"red-team-operations","t":"Red Team Operations","p":299,"mrp":899},{"id":"android-app-pentesting","t":"Android App Pentesting","p":249,"mrp":599},{"id":"think-like-an-attacker","t":"Think Like an Attacker","p":249,"mrp":649},{"id":"active-directory","t":"Active Directory Attacks & Defense","p":299,"mrp":799},{"id":"the-200-tool-arsenal","t":"The 200-Tool Arsenal","p":249,"mrp":699},{"id":"bug-bounty-playbook","t":"Bug Bounty Hunter's Playbook","p":249,"mrp":599},{"id":"wireless-iot-hacking","t":"Wireless & IoT Hacking","p":249,"mrp":599}];
 const CATALOG_BY_ID = Object.fromEntries(CATALOG.map(b => [b.id, b]));
 const TIERS = [[18, 40], [5, 25], [3, 15], [2, 10]];
 function localPrice(ids) {
@@ -184,7 +203,9 @@ function waLink() {
 }
 
 function renderPrice(price) {
-  itemsEl.innerHTML = price.items.map(b => `<li><span>${b.t}</span><span>${inr(b.p)}</span></li>`).join('');
+  itemsEl.innerHTML = price.items.map(b => `<li><img src="cover/${b.id}.jpg" alt=""><span class="t">${b.t}</span><span>${b.mrp > b.p ? `<s>${inr(b.mrp)}</s>` : ''}${inr(b.p)}</span></li>`).join('');
+  const mrpSum = price.items.reduce((a, b) => a + (b.mrp || b.p), 0);
+  document.getElementById('saveNote').textContent = mrpSum > price.totalInr ? `You save ${inr(mrpSum - price.totalInr)} vs. the old price` : '';
   sumEl.textContent = inr(price.sumInr);
   if (price.discountPercent) {
     discRow.hidden = false;
@@ -195,6 +216,8 @@ function renderPrice(price) {
 }
 
 async function init() {
+  const resumeId = params.get('order');
+  if (resumeId) return resume(resumeId);
   if (!bookIds.length) {
     document.getElementById('subtitle').textContent = 'No books selected — go back to the store and add some books first.';
     document.getElementById('emailPanel').hidden = true;
@@ -247,6 +270,8 @@ document.getElementById('payBtn').onclick = async () => {
   try {
     const order = await api('/api/orders', { method: 'POST', body: JSON.stringify({ bookIds, email, method }) });
     document.getElementById('emailPanel').hidden = true;
+    // Put the order id in the address bar so a reload or a bookmark comes back to this order.
+    try { history.replaceState(null, '', '?order=' + order.orderId); } catch (_) {}
     if (method === 'crypto') startCrypto(order);
     else startUpiManual(order);
   } catch (err) {
@@ -258,8 +283,11 @@ document.getElementById('payBtn').onclick = async () => {
   }
 };
 
-function showDone(downloadUrl) {
+function showDone(downloadUrl, orderId) {
   clearInterval(pollTimer);
+  document.getElementById('resumePanel').hidden = true;
+  document.getElementById('emailPanel').hidden = true;
+  if (orderId) document.getElementById('doneRef').textContent = orderId.slice(0, 8).toUpperCase();
   document.getElementById('cryptoPanel').hidden = true;
   document.getElementById('upiManualPanel').hidden = true;
   document.getElementById('donePanel').hidden = false;
@@ -270,14 +298,14 @@ function pollOrder(orderId) {
   pollTimer = setInterval(async () => {
     try {
       const o = await api(`/api/orders/${orderId}`);
-      if (o.status === 'paid' || o.status === 'delivered') showDone(o.downloadUrl);
+      if (o.status === 'paid' || o.status === 'delivered') showDone(o.downloadUrl, orderId);
     } catch (_) { /* keep polling */ }
   }, 2500);
 }
 
 function startCrypto(order) {
   document.getElementById('cryptoPanel').hidden = false;
-  document.getElementById('usdtAmt').textContent = order.usdtAmount + ' USDT';
+  document.getElementById('usdtAmt').textContent = order.usdtAmount;
   document.getElementById('usdtAddr').textContent = order.usdtAddress;
   try {
     new QRCode(document.getElementById('qr'), { text: order.usdtAddress, width: 180, height: 180 });
@@ -291,7 +319,7 @@ function startCrypto(order) {
     btn.disabled = true; btn.textContent = 'Verifying…';
     try {
       const res = await api(`/api/orders/${order.orderId}/crypto-submit`, { method: 'POST', body: JSON.stringify({ txHash }) });
-      if (res.status === 'paid' || res.status === 'delivered') showDone(res.downloadUrl);
+      if (res.status === 'paid' || res.status === 'delivered') showDone(res.downloadUrl, order.orderId);
       else setNotice(document.getElementById('cryptoNotice'), 'bad', res.error || 'Not confirmed yet — it may still be mining, try again shortly.');
     } catch (err) {
       setNotice(document.getElementById('cryptoNotice'), 'bad', err.message || 'Could not verify — try again in a minute.');
@@ -305,6 +333,12 @@ function startUpiManual(order) {
   document.getElementById('upiManualPanel').hidden = false;
   document.getElementById('umAmt').textContent = inr(order.amountInr);
   document.getElementById('umAmt2').textContent = inr(order.amountInr);
+  try {
+    new QRCode(document.getElementById('umQr'), { text: order.upiLink, width: 200, height: 200, correctLevel: QRCode.CorrectLevel.M });
+  } catch (_) {
+    document.getElementById('umQr').innerHTML = '<img src="assets/upi-qr.jpg" alt="UPI QR code">';
+  }
+  document.getElementById('umApp').href = order.upiLink;
   document.getElementById('umVpaText').textContent = order.upiId + (order.payeeName ? ' (' + order.payeeName + ')' : '');
   document.getElementById('umCopyVpa').onclick = () => {
     const btn = document.getElementById('umCopyVpa');
@@ -341,6 +375,25 @@ function startUpiManual(order) {
       btn.disabled = false; btn.textContent = 'Submit for review';
     }
   };
+}
+
+// Coming back to ?order=<id> (reload, bookmark, or a link we sent): show where it stands.
+async function resume(orderId) {
+  document.getElementById('emailPanel').hidden = true;
+  document.querySelector('.panel').hidden = true;
+  document.getElementById('subtitle').textContent = 'Your order ' + orderId.slice(0, 8).toUpperCase();
+  const panel = document.getElementById('resumePanel'), text = document.getElementById('resumeText');
+  panel.hidden = false;
+  try {
+    const o = await api(`/api/orders/${encodeURIComponent(orderId)}`);
+    if (o.status === 'paid' || o.status === 'delivered') return showDone(o.downloadUrl, orderId);
+    text.textContent = o.status === 'awaiting_review'
+      ? 'Your UPI payment is being verified (usually 20–30 minutes). Keep this page open or bookmarked — your download appears here once it is approved.'
+      : 'We have not received a payment proof for this order yet. If you already paid, WhatsApp +91 93411 27976 with your order reference.';
+    pollOrder(orderId);
+  } catch (_) {
+    panel.innerHTML = '<div class="notice bad">We could not find that order. <a href="index.html">Back to the store</a></div>';
+  }
 }
 
 init();

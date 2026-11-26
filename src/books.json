@@ -2,144 +2,144 @@
   {
     "id": "linux-for-hackers",
     "title": "Linux for Hackers",
-    "priceInr": 349,
-    "mrpInr": 699,
+    "priceInr": 199,
+    "mrpInr": 349,
     "pages": 355,
     "file": "HackLearn-Linux-for-Hackers.pdf"
   },
   {
     "id": "network-hacking-20-days",
     "title": "Network Hacking in 20 Days",
-    "priceInr": 449,
-    "mrpInr": 899,
+    "priceInr": 249,
+    "mrpInr": 449,
     "pages": 426,
     "file": "HackLearn-Network-Hacking-in-20-Days.pdf"
   },
   {
     "id": "web-app-pentesting",
     "title": "Web Application Pentesting",
-    "priceInr": 599,
-    "mrpInr": 1199,
+    "priceInr": 299,
+    "mrpInr": 599,
     "pages": 426,
     "file": "HackLearn-Web-Application-Pentesting.pdf"
   },
   {
     "id": "python-for-hackers",
     "title": "Python for Hackers",
-    "priceInr": 449,
-    "mrpInr": 899,
+    "priceInr": 199,
+    "mrpInr": 449,
     "pages": 241,
     "file": "HackLearn-Python-for-Hackers.pdf"
   },
   {
     "id": "soc-analyst-field-guide",
     "title": "SOC Analyst Field Guide",
-    "priceInr": 549,
-    "mrpInr": 1099,
+    "priceInr": 249,
+    "mrpInr": 549,
     "pages": 223,
     "file": "HackLearn-SOC-Analyst-Field-Guide.pdf"
   },
   {
     "id": "applied-cryptography",
     "title": "Applied Cryptography for Security Pros",
-    "priceInr": 499,
-    "mrpInr": 999,
+    "priceInr": 199,
+    "mrpInr": 499,
     "pages": 221,
     "file": "HackLearn-Applied-Cryptography.pdf"
   },
   {
     "id": "osint-investigations",
     "title": "OSINT Investigations",
-    "priceInr": 449,
-    "mrpInr": 899,
+    "priceInr": 199,
+    "mrpInr": 449,
     "pages": 222,
     "file": "HackLearn-OSINT-Investigations.pdf"
   },
   {
     "id": "malware-analysis",
     "title": "Malware Analysis & Reverse Engineering",
-    "priceInr": 799,
-    "mrpInr": 1499,
+    "priceInr": 299,
+    "mrpInr": 799,
     "pages": 229,
     "file": "HackLearn-Malware-Analysis.pdf"
   },
   {
     "id": "cloud-security",
     "title": "Cloud Security & Pentesting",
-    "priceInr": 699,
-    "mrpInr": 1299,
+    "priceInr": 299,
+    "mrpInr": 699,
     "pages": 221,
     "file": "HackLearn-Cloud-Security.pdf"
   },
   {
     "id": "breaking-the-model",
     "title": "Breaking the Model",
-    "priceInr": 699,
-    "mrpInr": 1299,
+    "priceInr": 299,
+    "mrpInr": 699,
     "pages": 220,
     "file": "HackLearn-Breaking-the-Model.pdf"
   },
   {
     "id": "signals-in-the-dark",
     "title": "Signals in the Dark",
-    "priceInr": 799,
-    "mrpInr": 1499,
+    "priceInr": 299,
+    "mrpInr": 799,
     "pages": 226,
     "file": "HackLearn-Signals-in-the-Dark.pdf"
   },
   {
     "id": "red-team-operations",
     "title": "Red Team Operations",
-    "priceInr": 899,
-    "mrpInr": 1699,
+    "priceInr": 299,
+    "mrpInr": 899,
     "pages": 263,
     "file": "HackLearn-Red-Team-Operations.pdf"
   },
   {
     "id": "android-app-pentesting",
     "title": "Android App Pentesting",
-    "priceInr": 599,
-    "mrpInr": 1199,
+    "priceInr": 249,
+    "mrpInr": 599,
     "pages": 218,
     "file": "HackLearn-Android-App-Pentesting.pdf"
   },
   {
     "id": "think-like-an-attacker",
     "title": "Think Like an Attacker",
-    "priceInr": 649,
-    "mrpInr": 1299,
+    "priceInr": 249,
+    "mrpInr": 649,
     "pages": 218,
     "file": "HackLearn-Think-Like-an-Attacker.pdf"
   },
   {
     "id": "active-directory",
     "title": "Active Directory Attacks & Defense",
-    "priceInr": 799,
-    "mrpInr": 1499,
+    "priceInr": 299,
+    "mrpInr": 799,
     "pages": 228,
     "file": "HackLearn-Active-Directory-Attacks-and-Defense.pdf"
   },
   {
     "id": "the-200-tool-arsenal",
     "title": "The 200-Tool Arsenal",
-    "priceInr": 699,
-    "mrpInr": 1399,
+    "priceInr": 249,
+    "mrpInr": 699,
     "pages": 220,
     "file": "HackLearn-The-200-Tool-Arsenal.pdf"
   },
   {
     "id": "bug-bounty-playbook",
     "title": "Bug Bounty Hunter's Playbook",
-    "priceInr": 599,
-    "mrpInr": 1199,
+    "priceInr": 249,
+    "mrpInr": 599,
     "pages": 293,
     "file": "HackLearn-Bug-Bounty-Playbook.pdf"
   },
   {
     "id": "wireless-iot-hacking",
     "title": "Wireless & IoT Hacking",
-    "priceInr": 599,
-    "mrpInr": 1199,
+    "priceInr": 249,
+    "mrpInr": 599,
     "pages": 217,
     "file": "HackLearn-Wireless-and-IoT-Hacking.pdf"
   }

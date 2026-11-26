@@ -68,13 +68,22 @@ app.use(helmet({
   },
 }));
 app.set('trust proxy', 1); // Render sits behind a proxy; needed for rate-limit to key on the real client IP
-app.use(cors({
-  origin(origin, cb) {
-    // No Origin header (curl, server-to-server, the Razorpay webhook) is
-    // always allowed through — CORS only ever governs browser requests.
-    if (!FRONTEND_ORIGIN || !origin || FRONTEND_ORIGIN.includes(origin)) return cb(null, true);
-    cb(new Error('not allowed by CORS'));
-  },
+// The storefront is now served by this same server, so a request whose
+// Origin is this server's own address is always allowed — otherwise setting
+// FRONTEND_ORIGIN to another domain (e.g. hacklearnraj.in) would block the
+// store's own checkout with "not allowed by CORS". PUBLIC_BASE_URL is
+// trusted too, and both www/non-www forms of every listed origin.
+const PUBLIC_ORIGIN = (() => { try { return new URL(process.env.PUBLIC_BASE_URL).origin; } catch { return null; } })();
+const withWww = o => { try { const u = new URL(o); const h = u.hostname.startsWith('www.') ? u.hostname.slice(4) : 'www.' + u.hostname; return [u.origin, `${u.protocol}//${h}${u.port ? ':' + u.port : ''}`]; } catch { return [o]; } };
+const ALLOWED_ORIGINS = FRONTEND_ORIGIN ? new Set([...FRONTEND_ORIGIN, PUBLIC_ORIGIN].filter(Boolean).flatMap(withWww)) : null;
+app.use(cors((req, cb) => {
+  const origin = req.header('Origin');
+  // No Origin header (curl, server-to-server, the Razorpay webhook) is
+  // always allowed through — CORS only ever governs browser requests.
+  const selfOrigins = [`https://${req.get('host')}`, `http://${req.get('host')}`];
+  const ok = !ALLOWED_ORIGINS || !origin || ALLOWED_ORIGINS.has(origin) || selfOrigins.includes(origin);
+  if (!ok) console.warn(`[cors] blocked origin ${origin} — add it to FRONTEND_ORIGIN on Render if it's your storefront`);
+  cb(ok ? null : new Error('not allowed by CORS'), { origin: ok });
 }));
 
 // Rate limiting — every route here is either public-facing (so open to
